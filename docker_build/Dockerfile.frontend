@@ -1,0 +1,30 @@
+# ---- Stage 1: build the Vite app ----
+FROM node:20-alpine AS build
+WORKDIR /app
+
+# Install deps first (better caching)
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+
+# Copy the rest and build
+COPY frontend/ ./
+
+# Build-time API base URL (Vite reads VITE_* variables)
+ARG VITE_API_BASE_URL
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
+
+RUN npm run build
+
+
+# ---- Stage 2: serve with nginx ----
+FROM nginx:alpine
+
+# Copy built files to nginx html folder
+COPY --from=build /app/dist /usr/share/nginx/html
+
+# Optional: a basic nginx config to support SPA routing (React Router)
+# If you don’t use client-side routing, you can skip this.
+COPY docker_build/nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]

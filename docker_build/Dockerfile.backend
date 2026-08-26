@@ -1,0 +1,41 @@
+# ---- Backend image (Flask + Java for SIMOD) ----
+FROM python:3.11.9-slim
+
+# Prevents Python from writing .pyc files and buffers
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# System deps
+# - build-essential: keep if any pip deps need compilation
+# - ca-certificates + tar: needed for trusted HTTPS + extracting the JRE tar.gz
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    tar \
+  && rm -rf /var/lib/apt/lists/*
+
+# --- Install Java 8 from local artifact (no downloads) ---
+# Make sure jre-8u471-linux-x64.tar.gz is in the same folder as this Dockerfile
+COPY docker_build/jre-8u471-linux-x64.tar.gz /tmp/jre8.tar.gz
+
+RUN mkdir -p /opt/java \
+  && tar -xzf /tmp/jre8.tar.gz -C /opt/java \
+  && rm /tmp/jre8.tar.gz
+
+# This tar.gz extracts to /opt/java/jre1.8.0_471
+ENV JAVA_HOME=/opt/java/jre1.8.0_471
+ENV PATH="$JAVA_HOME/bin:$PATH"
+
+# Install Python deps first (better build caching)
+COPY backend/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy backend code
+COPY backend/ /app/
+
+EXPOSE 5000
+
+# Run your app
+CMD ["python", "app.py"]

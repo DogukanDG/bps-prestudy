@@ -1,0 +1,4 @@
+# Model files are parsed byte-for-byte by Prosimos.
+*.bpmn -text
+*.json -text
+*.sh text eol=lf

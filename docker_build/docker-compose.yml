@@ -1,0 +1,29 @@
+name: bps-sensitivity-analysis-tool-final
+
+services:
+  backend:
+    image: bps_sensitivity_analysis_backend_image_final:latest
+    build:
+      context: ..
+      dockerfile: docker_build/Dockerfile.backend
+    container_name: BPS_Sensitivity_Analysis_backend_final
+    ports:
+      - "5000:5000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./output:/app/output
+
+  frontend:
+    image: bps_sensitivity_analysis_frontend_image_final:latest
+    build:
+      context: ..
+      dockerfile: docker_build/Dockerfile.frontend
+      args:
+        # baked into frontend at build time
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+    container_name: BPS_Sensitivity_Analysis_frontend_final
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend

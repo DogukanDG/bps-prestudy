@@ -1,0 +1,21 @@
+# Dependencies for running the experiment scripts on the cluster.
+#
+# The repository's requirements.txt targets the Flask app and omits pandas and
+# pyarrow, which arrive indirectly through simod. Pinning them here keeps the
+# parquet format identical to the local runs; without pyarrow every run fails
+# at the KPI-aggregation step.
+#
+# Flask, flask-cors and simod itself are left out: the cluster never serves the
+# API and never rediscovers a model.
+
+SALib==1.4.7
+prosimos==2.0.6
+scipy==1.16.3
+joblib==1.4.2
+tqdm==4.66.4
+pandas==2.3.3
+numpy==1.26.4
+pyarrow==17.0.0
+
+# Only needed by run_bpic2013_logdistance.py (slides 14-15)
+log-distance-measures==2.1.0

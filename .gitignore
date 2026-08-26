@@ -1,0 +1,24 @@
+# Python venv
+backend/venv/
+
+# Node modules
+frontend/node_modules/
+
+# General OS junk
+.DS_Store
+Thumbs.db
+
+# output files
+output/
+
+# Python cache
+__pycache__/
+**/__pycache__/
+*.pyc
+
+# Docker images
+docker_prebuilt_images/
+
+# Bundled JRE tarball from the upstream Docker build (45 MB). Not needed for
+# headless runs; fetch it from the upstream repo if you build the image.
+docker_build/*.tar.gz
