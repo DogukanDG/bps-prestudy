@@ -37,7 +37,14 @@ echo "cores   : ${SLURM_NTASKS:-unset}"
 echo "started : $(date)"
 echo
 
-python run_prestudy.py --dataset "${DATASET:-production}"
+# CASES lets a partial sweep be submitted, e.g. to finish a case count that
+# ran out of wall time:
+#     DATASET=production CASES="7000" sbatch --time=03:00:00 run_prestudy.sh
+if [ -n "${CASES:-}" ]; then
+    python run_prestudy.py --dataset "${DATASET:-production}" --cases $CASES
+else
+    python run_prestudy.py --dataset "${DATASET:-production}"
+fi
 
 echo
 echo "finished: $(date)"

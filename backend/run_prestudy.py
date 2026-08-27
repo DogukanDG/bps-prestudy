@@ -218,6 +218,23 @@ def analyse():
           "\nwhichever cutoff you apply explicitly in the write-up.")
 
 
+def merge_into(final: Path, partial: Path):
+    """Move newly simulated case folders into an existing pre-study directory."""
+    src = partial / "simulation_results"
+    dst = final / "simulation_results"
+    dst.mkdir(parents=True, exist_ok=True)
+    moved = []
+    for case_dir in sorted(src.glob("sim_results_*_cases")):
+        target = dst / case_dir.name
+        if target.exists():
+            log(f"    {case_dir.name} already present, replacing")
+            shutil.rmtree(target)
+        shutil.move(str(case_dir), str(target))
+        moved.append(case_dir.name)
+    shutil.rmtree(partial, ignore_errors=True)
+    log(f"merged {len(moved)} case folders into {final.name}: {', '.join(moved)}")
+
+
 def main():
     global BPMN_PATH, JSON_PATH, OUT_DIR
 
@@ -259,15 +276,25 @@ def main():
     # run_simulation_pipeline refuses to write into a folder that already
     # exists, so the directory must not be created ahead of it.
     if OUT_DIR.exists():
-        if not args.fresh:
-            log(f"FATAL: {OUT_DIR.name} already exists.")
-            log("       Pass --fresh to delete it and start over, or --analyse-only")
-            log("       to rebuild the tables from what is already there.")
-            sys.exit(1)
-        log(f"removing existing {OUT_DIR.name}")
-        shutil.rmtree(OUT_DIR)
+        if args.fresh:
+            log(f"removing existing {OUT_DIR.name}")
+            shutil.rmtree(OUT_DIR)
+            simulate()
+        else:
+            # Adding case counts to a sweep that already ran: simulate into a
+            # scratch folder, then move the new sim_results_*_cases directories
+            # across. Anything already present is left alone.
+            log(f"{OUT_DIR.name} exists -- adding cases {CASES} to it")
+            final = OUT_DIR
+            globals()["OUT_DIR"] = OUT_DIR.with_name(OUT_DIR.name + "_partial")
+            if OUT_DIR.exists():
+                shutil.rmtree(OUT_DIR)
+            simulate()
+            merge_into(final, OUT_DIR)
+            globals()["OUT_DIR"] = final
+    else:
+        simulate()
 
-    simulate()
     analyse()
 
 
