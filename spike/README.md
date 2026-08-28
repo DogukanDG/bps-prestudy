@@ -11,20 +11,20 @@ and ignores replication. The real adapter replaces it.
 
 ## Status (2026-08-28)
 
-All three questions are answered, on `bpic2012`, with the current code in
-this folder — `./run_spike.sh build && ./run_spike.sh bench bpic2012`
-reproduces it end to end with no further changes needed:
+All three questions are answered, on both `bpic2012` and `bpic2017`, with the
+current code in this folder — `./run_spike.sh build && ./run_spike.sh bench
+<dataset>` reproduces it end to end with no further changes needed:
 
-1. BPMN parses — yes.
+1. BPMN parses — yes, both datasets.
 2. KPIs come out directly in `<dataset>_resourceutilization.xml` — yes, see
    the mapping table under Question 2 below. No XES parsing needed for the
    metrics Prosimos reports.
-3. 3000 cases in 1.58 s, beating Prosimos's 2.6–3.1 s reference — full
-   sensitivity-analysis matrix is feasible on timing grounds.
+3. 3000 cases in 1.58 s (`bpic2012`) / 1.37 s (`bpic2017`), both beating
+   Prosimos's 2.6–3.1 s reference — full sensitivity-analysis matrix is
+   feasible on timing grounds.
 
-Not yet run: `bpic2017` (same commands, untested dataset) and the `cost`
-field, which is `0.0` everywhere because the converter doesn't carry cost
-data through yet.
+Not yet done: the `cost` field, which is `0.0` everywhere because the
+converter doesn't carry cost data through yet.
 
 ## Prerequisites
 
@@ -86,9 +86,10 @@ pom's `clean` phase, so a single `mvn package` can't resolve them.
 **Question 1 — does the BPMN parse?** ✅ answered — yes.
 Low risk: both BPIC models use only element types Scylla supports (exclusive
 gateways, parallel gateways, tasks, one start and one end event). If it fails,
-the error names the element. Verified 2026-08-28 on `bpic2012`: model parsed
-(`tasks=6 gateways=11`) and the output XES trace count matched the requested
-case count exactly at 100/500/1000/3000 cases (see Known trap below).
+the error names the element. Verified 2026-08-28 on both datasets
+(`bpic2012`: `tasks=6 gateways=11`; `bpic2017`: `tasks=7 gateways=11`): both
+models parsed and the output XES trace count matched the requested case count
+exactly at 100/500/1000/3000 cases (see Known trap below).
 
 **Question 2 — which KPIs come out?** ✅ answered — read directly, no XES parsing.
 
@@ -149,8 +150,20 @@ Measured 2026-08-28 on `bpic2012` (includes JVM startup each run):
 
 3000 cases at 1.58 s beats Prosimos's 2.6–3.1 s reference even with per-process
 JVM startup included — "about the same or faster" tier, full matrix is
-comfortable. `bpic2017` hasn't been benchmarked yet; same command, different
-dataset: `./run_spike.sh bench bpic2017`.
+comfortable.
+
+`bpic2017` (`tasks=7 gateways=11`, one more task than `bpic2012`), measured
+2026-08-28:
+
+| cases | wall time |
+|---|---|
+| 100 | 0.51 s |
+| 500 | 0.70 s |
+| 1000 | 0.86 s |
+| 3000 | 1.37 s |
+
+Same "about the same or faster" tier. Trace counts in the output XES matched
+the requested case count at every step, same as `bpic2012`.
 
 ## Known traps
 
