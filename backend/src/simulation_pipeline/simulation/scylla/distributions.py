@@ -157,33 +157,58 @@ def append_histogram(parent: ET.Element, samples: Sequence[float],
     """Emit samples as an arbitraryFiniteProbabilityDistribution.
 
     Scylla backs this with DiscreteDistEmpirical (`SimulationUtils.java:304`),
-    a genuinely discrete distribution over the values given -- so the bucket
-    centres are the only durations that can ever occur, and `buckets` directly
-    controls fidelity. Frequencies are normalised by the parser
+    a genuinely discrete distribution over the values given -- so the emitted
+    values are the only durations that can ever occur.
+
+    Buckets are equal-*frequency* (quantile), not equal-width. These durations
+    have very long tails: on the largest BPIC 2012 activity the maximum is 218x
+    the median, so equal-width bucketing spends its whole range on outliers.
+    Measured there, equal-width bucketing left only 32 of 100 buckets occupied
+    and overstated the mean by 16%; equal-frequency reproduces it to well under
+    1% at the same bucket count. Each bucket instead carries the mean of the
+    samples inside it, which makes the overall mean exact by construction.
+
+    Frequencies are normalised by the parser
     (`SimulationConfigurationParser.java:292`), so raw counts are fine.
     """
     if not samples:
         raise ValueError("cannot build a histogram from zero samples")
 
-    lo, hi = min(samples), max(samples)
     el = ET.SubElement(parent, _q("arbitraryFiniteProbabilityDistribution"))
 
-    if hi - lo < 1e-9:
-        ET.SubElement(el, _q("entry"), value=f"{lo:.6f}", frequency="1")
+    ordered = sorted(samples)
+    if ordered[-1] - ordered[0] < 1e-9:
+        ET.SubElement(el, _q("entry"), value=f"{ordered[0]:.6f}", frequency="1")
         return el
 
-    width = (hi - lo) / buckets
-    counts = [0] * buckets
-    for v in samples:
-        counts[min(int((v - lo) / width), buckets - 1)] += 1
+    n = len(ordered)
+    buckets = max(1, min(buckets, n))
 
-    for i, c in enumerate(counts):
-        if c:
+    # Averaging inside a bucket loses the extreme tail: the largest sample gets
+    # blended into its bucket's mean, and on the largest BPIC 2012 activity that
+    # pulled the maximum from 36448 s down to 3765 s at 100 buckets. Queueing is
+    # driven by exactly those long services, so the top tail is emitted sample
+    # by sample instead of averaged.
+    tail = min(max(buckets // 10, 1), n)
+    body, extremes = ordered[: n - tail], ordered[n - tail:]
+
+    if body:
+        body_buckets = max(1, buckets - tail)
+        edges = [round(i * len(body) / body_buckets)
+                 for i in range(body_buckets + 1)]
+        for start, stop in zip(edges[:-1], edges[1:]):
+            if stop <= start:
+                continue
+            group = body[start:stop]
             ET.SubElement(
                 el, _q("entry"),
-                value=f"{lo + width * (i + 0.5):.6f}",
-                frequency=str(c),
+                value=f"{sum(group) / len(group):.6f}",
+                frequency=str(len(group)),
             )
+
+    for value in extremes:
+        ET.SubElement(el, _q("entry"), value=f"{value:.6f}", frequency="1")
+
     return el
 
 

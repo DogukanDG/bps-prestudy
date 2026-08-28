@@ -62,7 +62,7 @@ def write_configs(
     seed: int,
     buckets: int = D.DEFAULT_BUCKETS,
     n_draws: int = D.DEFAULT_DRAWS,
-    weighted: bool = True,
+    weighted: bool = False,
 ) -> Dict[str, Path]:
     """Generate and validate both config files for one sample.
 
@@ -88,15 +88,40 @@ def write_configs(
     }
 
 
+def resolve_java(explicit: str | None = None) -> str:
+    """Pick the java binary.
+
+    Scylla's current main targets Java 11 (`pom.xml`: source/target 11), so an
+    older JVM on PATH fails with UnsupportedClassVersionError at startup. JAVA_BIN
+    overrides; otherwise a JDK inside the active conda environment is preferred
+    over whatever PATH resolves to, since that is where the pinned one lives.
+    """
+    import os
+    import sys
+
+    if explicit:
+        return explicit
+    if os.environ.get("JAVA_BIN"):
+        return os.environ["JAVA_BIN"]
+
+    prefix = Path(sys.prefix)
+    for candidate in (prefix / "Library" / "bin" / "java.exe",   # conda, Windows
+                      prefix / "bin" / "java"):                  # conda, POSIX
+        if candidate.is_file():
+            return str(candidate)
+    return "java"
+
+
 def run_scylla(
     jar_path: str | Path,
     configs: Dict[str, Path],
     work_dir: Path,
     timeout_s: int = DEFAULT_TIMEOUT_S,
-    java_bin: str = "java",
+    java_bin: str | None = None,
     heap: str | None = None,
 ) -> Path:
     """Run one simulation; return the directory Scylla wrote."""
+    java_bin = resolve_java(java_bin)
     before = {p for p in work_dir.iterdir()
               if p.is_dir() and p.name.startswith(_OUTPUT_PREFIX)}
 
@@ -150,9 +175,10 @@ def simulate_sample_scylla(
     seed: int | None = None,
     buckets: int = D.DEFAULT_BUCKETS,
     n_draws: int = D.DEFAULT_DRAWS,
-    weighted: bool = True,
+    weighted: bool = False,
     keep_output: str | Path | None = None,
     heap: str | None = None,
+    java_bin: str | None = None,
 ) -> Dict[str, Any]:
     """Simulate one sampled configuration with Scylla.
 
@@ -176,7 +202,8 @@ def simulate_sample_scylla(
             work_dir, sample_data, bpmn_path, total_cases, start_iso,
             effective_seed, buckets, n_draws, weighted,
         )
-        output_dir = run_scylla(jar_path, configs, work_dir, heap=heap)
+        output_dir = run_scylla(jar_path, configs, work_dir, heap=heap,
+                                java_bin=java_bin)
 
         rows = parse_process_rows(
             output_dir, sample_id=sample_id, expected_cases=total_cases,
@@ -210,13 +237,30 @@ def simulate_sample_scylla(
         shutil.rmtree(work_dir, ignore_errors=True)
 
 
+_JAR_HELP = (
+    "Build it with spike/run_spike.sh build, or set SCYLLA_JAR. It must come "
+    "from a commit that includes f9671cb (Fix #72) -- the copy bundled with "
+    "SimuBridge does not -- and must be compiled for the local JVM: building "
+    "with a newer JDK than the one running it gives UnsupportedClassVersionError."
+)
+
+
 def resolve_jar(explicit: str | Path | None = None) -> Path:
-    """Find scylla.jar: explicit path, SCYLLA_JAR, or the spike build."""
+    """Find scylla.jar: an explicit path, SCYLLA_JAR, or the spike build.
+
+    An explicit path that does not exist is an error rather than a reason to
+    fall back -- silently running a different jar than the caller asked for
+    would make results untraceable.
+    """
     import os
 
-    candidates = []
     if explicit:
-        candidates.append(Path(explicit))
+        path = Path(explicit)
+        if not path.is_file():
+            raise FileNotFoundError(f"scylla.jar not found at {path}. {_JAR_HELP}")
+        return path
+
+    candidates = []
     if os.environ.get("SCYLLA_JAR"):
         candidates.append(Path(os.environ["SCYLLA_JAR"]))
     candidates.append(Path(__file__).resolve().parents[5] / "spike" / "scylla.jar")
@@ -225,8 +269,4 @@ def resolve_jar(explicit: str | Path | None = None) -> Path:
         if candidate.is_file():
             return candidate
 
-    raise FileNotFoundError(
-        "scylla.jar not found. Build it with spike/run_spike.sh build, or set "
-        "SCYLLA_JAR. Note it must come from a commit that includes f9671cb "
-        "(Fix #72); the copy bundled with SimuBridge does not."
-    )
+    raise FileNotFoundError(f"scylla.jar not found. {_JAR_HELP}")

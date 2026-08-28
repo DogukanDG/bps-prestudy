@@ -11,12 +11,21 @@ are all required *simultaneously* (`QueueManager.java:154-172` blocks unless
 every listed resource is available). Writing the profiles directly would
 deadlock.
 
-So resources are pooled per activity: one `dynamicResource` with
-`defaultQuantity = N`, holding each real resource as a named `<instance>` that
-keeps its own timetable. That preserves per-resource *calendars* -- which is
-what keeps `is_resource_calendars` and `is_resource_numbers` meaningful -- and
-sacrifices only per-resource *durations*, which collapse into the weighted
-mixture built in build_sim_config.
+So every resource goes into one shared `dynamicResource` with
+`defaultQuantity = N`, each as a named `<instance>` keeping its own timetable.
+What survives and what does not:
+
+    kept   per-resource calendars, so is_resource_calendars stays meaningful
+    kept   total capacity, so contention between activities is real
+    lost   per-resource durations -- pooled into a weighted mixture per
+           activity (build_sim_config)
+    lost   eligibility, which resources may perform which activity
+
+Pooling per activity instead was the first attempt and is wrong: a resource
+that works on four activities becomes four independent instances. Capacity came
+out 4.1x too high on both models (191 vs 47 on BPIC 2012, 433 vs 105 on
+BPIC 2017), because 91% and 96% of their resources appear in more than one
+activity. T1 caught it -- see the note on SHARED_POOL_ID below.
 
 Requires a Scylla build that includes commit f9671cb ("Fix #72: default
 timetables for named resource instances are ignored"). The copy bundled with
@@ -42,9 +51,31 @@ def _q(tag: str) -> str:
 
 
 def pool_id_for(task_id: str) -> str:
-    """Pool identifier for an activity. Kept deterministic and collision-free:
-    the full task id is used, since Scylla only requires uniqueness."""
+    """Pool identifier for an activity.
+
+    Deprecated: kept only so older per-activity output can still be read. New
+    configurations share one pool across all activities (see `SHARED_POOL_ID`).
+    """
     return f"pool_{task_id}"
+
+
+# One pool for the whole process, holding every resource once.
+#
+# Pooling per activity looked natural but silently multiplies capacity: a
+# resource that works on four activities became four independent instances, so
+# total capacity was 191 instead of 47 on BPIC 2012 and 433 instead of 105 on
+# BPIC 2017 -- 4.1x in both. 91% of BPIC 2012 resources and 96% of BPIC 2017
+# resources appear in more than one activity, so almost none of the contention
+# between activities survived.
+#
+# T1 exposed it: with one resource and two concurrently-enabled activities,
+# Prosimos serialised them (120 s) while Scylla ran them at once (60 s).
+# A single shared pool restores the contention, at the cost of losing which
+# resources are eligible for which activity -- Scylla has no way to express
+# both. Eligibility already had to be given up for durations (they are pooled
+# per activity); this extends the same compromise to availability, and keeps
+# the capacity right, which is what queueing depends on.
+SHARED_POOL_ID = "resource_pool"
 
 
 def resource_calendar_map(model: Dict[str, Any]) -> Dict[str, str]:
@@ -92,8 +123,7 @@ def build_global_config(
     res_to_cost = resource_cost_map(model)
 
     res_data = ET.SubElement(root, _q("resourceData"))
-    for task in model["task_resource_distribution"]:
-        _append_pool(res_data, task, res_to_cal, res_to_cost, calendars)
+    _append_shared_pool(res_data, model, res_to_cal, res_to_cost, calendars)
 
     timetables = ET.SubElement(root, _q("timetables"))
     for cal in model.get("resource_calendars", []):
@@ -102,27 +132,49 @@ def build_global_config(
     return root
 
 
-def _append_pool(parent, task, res_to_cal, res_to_cost, calendars) -> ET.Element:
-    """One resource pool for one activity, with its members as instances."""
-    resource_ids = [r["resource_id"] for r in task["resources"]]
-    pool = pool_id_for(task["task_id"])
+def all_resource_ids(model: Dict[str, Any]) -> List[str]:
+    """Every distinct resource in the model, in a stable order.
+
+    Taken from resource_profiles rather than task_resource_distribution: the
+    latter lists a resource once per activity it can perform, and counting
+    those repeats is exactly the capacity inflation this pooling avoids.
+    """
+    seen: Dict[str, None] = {}
+    for profile in model.get("resource_profiles", []):
+        for res in profile.get("resource_list", []):
+            seen.setdefault(res["id"], None)
+    if seen:
+        return list(seen)
+
+    # Fall back to the distributions if no profiles are declared.
+    for task in model["task_resource_distribution"]:
+        for res in task["resources"]:
+            seen.setdefault(res["resource_id"], None)
+    return list(seen)
+
+
+def _append_shared_pool(parent, model, res_to_cal, res_to_cost,
+                        calendars) -> ET.Element:
+    """One pool holding every resource once, each keeping its own calendar."""
+    resource_ids = all_resource_ids(model)
 
     costs = [res_to_cost.get(rid, 0.0) for rid in resource_ids]
     default_cost = f"{(sum(costs) / len(costs)) if costs else 0.0:.6f}"
 
     el = ET.SubElement(parent, _q("dynamicResource"), {
-        "id": pool,
-        "name": pool,
+        "id": SHARED_POOL_ID,
+        "name": SHARED_POOL_ID,
         "defaultQuantity": str(len(resource_ids)),
         "defaultCost": default_cost,
         "defaultTimeUnit": DEFAULT_COST_TIME_UNIT,
     })
 
     for rid in resource_ids:
-        attrs = {"name": f"{pool}__{rid}"}
+        attrs = {"name": f"{SHARED_POOL_ID}__{rid}"}
         cal = res_to_cal.get(rid)
         if cal in calendars:
-            # Per-instance timetable: this is what survives pooling.
+            # Per-instance timetable: this is what survives pooling, and it is
+            # why is_resource_calendars stays meaningful on the Scylla side.
             attrs["timetableId"] = cal
         cost = res_to_cost.get(rid)
         if cost is not None:
@@ -151,10 +203,11 @@ def _append_timetable(parent, calendar) -> ET.Element:
 
 
 def pool_members(model: Dict[str, Any]) -> Dict[str, List[str]]:
-    """activity id -> the resource ids pooled under it.
+    """activity id -> the resource ids that can perform it.
 
-    Exposed so build_sim_config and the validation pass can check that what
-    was written to the global config is what the simulation config references.
+    Records the eligibility Simod discovered. Scylla cannot express it -- every
+    activity draws from the one shared pool -- but it is what the duration
+    mixture for each activity is built from.
     """
     return {
         task["task_id"]: [r["resource_id"] for r in task["resources"]]
@@ -170,10 +223,19 @@ def validate_global_config(root: ET.Element, model: Dict[str, Any]) -> None:
     default failure mode, and the converter has to do its own checking.
     """
     pools = {el.get("id") for el in root.iter(_q("dynamicResource"))}
-    expected = {pool_id_for(t["task_id"]) for t in model["task_resource_distribution"]}
-    missing = expected - pools
-    if missing:
-        raise ValueError(f"resource pools missing from global config: {sorted(missing)}")
+    if SHARED_POOL_ID not in pools:
+        raise ValueError(f"shared resource pool {SHARED_POOL_ID!r} missing")
+
+    # Capacity must equal the number of real resources; anything larger means
+    # a resource was counted once per activity it can perform.
+    pool = next(el for el in root.iter(_q("dynamicResource"))
+                if el.get("id") == SHARED_POOL_ID)
+    expected_capacity = len(all_resource_ids(model))
+    if int(pool.get("defaultQuantity")) != expected_capacity:
+        raise ValueError(
+            f"pool capacity {pool.get('defaultQuantity')} does not match the "
+            f"{expected_capacity} resources in the model"
+        )
 
     declared = {tt.get("id") for tt in root.iter(_q("timetable"))}
     referenced = {

@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Sequence
 from xml.etree import ElementTree as ET
 
 from . import distributions as D
-from .build_global_config import pool_id_for
+from .build_global_config import SHARED_POOL_ID
 
 BPMN_NS = "http://www.omg.org/spec/BPMN/20100524/MODEL"
 
@@ -67,12 +67,8 @@ def read_bpmn(bpmn_path: str | Path) -> Dict[str, Any]:
     }
 
 
-# A single resource cannot absorb an unbounded share of an activity's work: it
-# still works one case at a time. Raw 1/mean weighting ignores that -- in
-# BPIC 2012 one resource with a 1.1 s mean sitting alongside a 4141 s one takes
-# 65% of the weight, which no amount of speed can justify when demand is finite.
-# Capping the ratio between the heaviest and lightest resource keeps fast
-# resources dominant without letting one of them stand in for the whole pool.
+# Retained only so `weighted=True` still means something specific if anyone
+# re-enables it; the default is off. See resource_weights().
 MAX_WEIGHT_RATIO = 20.0
 
 
@@ -81,27 +77,30 @@ def resource_weights(
     rng: random.Random,
     max_ratio: float = MAX_WEIGHT_RATIO,
 ) -> List[float]:
-    """How much work each resource of an activity actually does.
+    """Throughput-proportional weights: 1 / mean duration, ratio-capped.
 
-    Simod records no utilisation, so it is derived. In Prosimos a resource that
-    finishes sooner becomes available again sooner and therefore takes on
-    proportionally more work, so throughput goes as 1 / mean duration -- but
-    only up to a point, because each resource is still serial. The ratio
-    between the largest and smallest weight is therefore capped (see
-    MAX_WEIGHT_RATIO above).
+    **Not used by default, because the assumption behind it is false.**
 
-    This approximates real queueing behaviour and is why the pooled mean is not
-    the arithmetic mean of the resources' means. The effect is large -- on
-    BPIC 2012 activities it moves the pooled duration by 3% to 60% -- so
-    `weighted=False` exists to measure it rather than assume it.
+    The reasoning was that a faster resource finishes sooner, frees up sooner,
+    and so takes on more work -- meaning a pooled duration should be weighted
+    towards the fast end. Measured against Prosimos on BPIC 2012 (500 cases,
+    one activity with 42 resources), it is not what happens:
+
+        fastest resource (mean    6.7 s) -> 4.8% of executions
+        slowest resource (mean 1060.7 s) -> 2.7% of executions
+
+    Near-uniform. Prosimos allocates by availability, not by speed, so the
+    correct pooled duration is the *unweighted* mixture. Weighting cut pooled
+    durations by 11-65% and made agreement with Prosimos worse, not better.
+
+    Kept because the comparison is worth reporting, and because `weighted=True`
+    is how the effect was measured rather than assumed.
     """
     means = [D.values_of(res)[0] for res in task["resources"]]
     positive = [m for m in means if m and m > 0]
     if not positive:
         return [1.0] * len(means)
 
-    # Zero-duration resources are treated as being as fast as the fastest
-    # genuine one, rather than infinitely fast.
     fastest = min(positive)
     raw = [1.0 / (m if m and m > 0 else fastest) for m in means]
 
@@ -117,12 +116,14 @@ def build_sim_config(
     seed: int,
     buckets: int = D.DEFAULT_BUCKETS,
     n_draws: int = D.DEFAULT_DRAWS,
-    weighted: bool = True,
+    weighted: bool = False,
 ) -> ET.Element:
     """Build the definitions/simulationConfiguration tree.
 
-    `weighted=False` pools resources with equal shares instead of by load; kept
-    so the effect of weighting can be measured rather than assumed.
+    `weighted=True` weights the pooled duration towards faster resources. Off by
+    default: measured against Prosimos, resource selection is near-uniform, so
+    weighting moves the pooled duration away from what Prosimos produces. See
+    resource_weights().
     """
     bpmn = read_bpmn(bpmn_path)
     rng = random.Random(seed)
@@ -159,13 +160,13 @@ def _append_task(parent, task, rng, buckets, n_draws, weighted) -> ET.Element:
     D.append_pooled_duration(duration, task["resources"], weights, rng,
                              buckets, n_draws)
 
-    # One unit of the activity's pool. The pool's defaultQuantity carries how
-    # many resources are actually available; asking for amount="1" here means
-    # "any one of them", which is the alternative-resource semantics Prosimos
-    # has and Scylla's multi-resource lists do not.
+    # One unit of the single shared pool. amount="1" means "any one resource",
+    # which is the alternative-resource semantics Prosimos has and Scylla's
+    # multi-resource lists do not. Sharing one pool across all activities is
+    # what preserves contention between them -- see build_global_config.
     resources = ET.SubElement(el, _q("resources"))
     ET.SubElement(resources, _q("resource"), {
-        "id": pool_id_for(task["task_id"]),
+        "id": SHARED_POOL_ID,
         "amount": "1",
     })
     return el

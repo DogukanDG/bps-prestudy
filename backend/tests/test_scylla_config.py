@@ -67,26 +67,45 @@ def test_seed_and_zone_are_written(global_root):
     assert global_root.findtext(q("zoneOffset")) == "+02:00"
 
 
-def test_one_pool_per_activity(dataset, global_root):
+def test_there_is_exactly_one_shared_pool(dataset, global_root):
+    """All activities draw from one pool, so contention between them is real.
+
+    Pooling per activity would duplicate any resource that works on more than
+    one activity -- 91% of them in BPIC 2012, 96% in BPIC 2017.
+    """
     pools = [el.get("id") for el in global_root.iter(q("dynamicResource"))]
-    expected = [G.pool_id_for(t["task_id"])
-                for t in dataset["model"]["task_resource_distribution"]]
-    assert sorted(pools) == sorted(expected)
+    assert pools == [G.SHARED_POOL_ID]
 
 
-def test_pool_quantity_matches_member_count(dataset, global_root):
-    """defaultQuantity is what makes the pool behave as N interchangeable
-    resources rather than one."""
-    by_task = {t["task_id"]: len(t["resources"])
-               for t in dataset["model"]["task_resource_distribution"]}
-    for el in global_root.iter(q("dynamicResource")):
-        task_id = el.get("id")[len("pool_"):]
-        assert int(el.get("defaultQuantity")) == by_task[task_id]
+def test_pool_capacity_equals_the_real_resource_count(dataset, global_root):
+    """The regression guard for the 4.1x capacity inflation T1 exposed:
+    191 instead of 47 on BPIC 2012, 433 instead of 105 on BPIC 2017."""
+    expected = len(G.all_resource_ids(dataset["model"]))
+    pool = next(global_root.iter(q("dynamicResource")))
+    assert int(pool.get("defaultQuantity")) == expected
+
+    inflated = sum(len(t["resources"])
+                   for t in dataset["model"]["task_resource_distribution"])
+    assert expected < inflated, "model has no shared resources to test with"
+
+
+def test_validation_catches_inflated_capacity(dataset, global_root):
+    pool = next(global_root.iter(q("dynamicResource")))
+    pool.set("defaultQuantity", str(int(pool.get("defaultQuantity")) + 5))
+    with pytest.raises(ValueError, match="capacity"):
+        G.validate_global_config(global_root, dataset["model"])
 
 
 def test_every_resource_becomes_an_instance(dataset, global_root):
     for el in global_root.iter(q("dynamicResource")):
         assert len(el.findall(q("instance"))) == int(el.get("defaultQuantity"))
+
+
+def test_each_resource_appears_exactly_once(dataset, global_root):
+    """No duplicates: a resource working on four activities is still one
+    resource, not four."""
+    names = [i.get("name") for i in global_root.iter(q("instance"))]
+    assert len(names) == len(set(names))
 
 
 def test_instances_keep_their_own_calendars(dataset, global_root):
@@ -99,7 +118,7 @@ def test_instances_keep_their_own_calendars(dataset, global_root):
     for el in global_root.iter(q("dynamicResource")):
         pool = el.get("id")
         for inst in el.findall(q("instance")):
-            rid = inst.get("name")[len(pool) + 2:]
+            rid = inst.get("name")[len(pool) + 2:]  # "<pool>__<resource id>"
             expected = res_to_cal.get(rid)
             if expected in declared:
                 assert inst.get("timetableId") == expected
@@ -179,11 +198,13 @@ def test_every_activity_has_a_duration_with_a_time_unit(dataset, sim_root):
         assert len(duration) == 1
 
 
-def test_activities_reference_their_own_pool(dataset, sim_root):
+def test_activities_reference_the_shared_pool(dataset, sim_root):
+    """amount="1" means "any one resource" -- the alternative-resource
+    semantics Prosimos has and Scylla's multi-resource lists do not."""
     sim = sim_root.find(q("simulationConfiguration"))
     for el in sim.findall(q("task")):
         ref = el.find(q("resources")).find(q("resource"))
-        assert ref.get("id") == G.pool_id_for(el.get("id"))
+        assert ref.get("id") == G.SHARED_POOL_ID
         assert ref.get("amount") == "1"
 
 
