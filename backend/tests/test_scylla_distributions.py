@@ -327,3 +327,48 @@ def test_our_native_mapping_round_trips_through_pix_framework():
     assert float(child_text(el, "mean")) == pytest.approx(3240.0)
     # The std must survive unchanged -- this is the SimuBridge bug.
     assert float(child_text(el, "standardDeviation")) == pytest.approx(300.0)
+
+
+def test_histogram_emits_no_duplicate_values():
+    """Scylla parses entries into a HashMap<Double, Double> with
+    entries.put(value, frequency) (`EmpiricalDistribution.java:11`), which
+    overwrites rather than accumulates. Two entries sharing a value therefore
+    collapse into one and the first one's mass is silently lost.
+
+    Easy to hit: a pool of resources with identical fixed durations produces
+    identical bucket means. Measured on a 38-resource BPIC 2012 activity,
+    100 entries became 75 and the pooled mean fell from 1095 s to 556 s.
+    """
+    rng = random.Random(0)
+    # Deliberately degenerate: many resources, few distinct durations.
+    resources = [dist("fix", v) for v in [100.0, 200.0, 300.0] * 12]
+    samples = D.weighted_mixture(resources, None, rng, 6000)
+    el = D.append_histogram(root(), samples, buckets=100)
+
+    values = [e.get("value") for e in el]
+    assert len(values) == len(set(values))
+
+
+def test_histogram_survives_scylla_hashmap_semantics():
+    """Reconstruct what Scylla will actually hold, and check the mean."""
+    rng = random.Random(0)
+    resources = [dist("fix", v) for v in [50.0, 400.0, 1200.0, 3000.0] * 9]
+    samples = D.weighted_mixture(resources, None, rng, 8000)
+    expected = statistics.mean(samples)
+
+    el = D.append_histogram(root(), samples, buckets=100)
+    as_scylla_reads_it = {}
+    for entry in el:
+        as_scylla_reads_it[float(entry.get("value"))] = float(entry.get("frequency"))
+
+    total = sum(as_scylla_reads_it.values())
+    mean = sum(v * f for v, f in as_scylla_reads_it.items()) / total
+    assert mean == pytest.approx(expected, rel=0.01)
+
+
+def test_histogram_frequencies_still_sum_to_the_sample_count():
+    """Merging duplicates must move mass, not drop it."""
+    rng = random.Random(0)
+    samples = D.draw_clipped(dist("gamma", 500.0, 250_000.0, 0.0, 1e9), rng, 5000)
+    el = D.append_histogram(root(), samples, buckets=100)
+    assert sum(int(e.get("frequency")) for e in el) == len(samples)
