@@ -1,0 +1,5 @@
+scylla.jar
+libs/
+bpic2012/
+bpic2017/
+*_timing.csv
