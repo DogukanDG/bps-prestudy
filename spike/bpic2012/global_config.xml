@@ -1,0 +1,241 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bsim:globalConfiguration xmlns:bsim="http://bsim.hpi.uni-potsdam.de/scylla/simModel" targetNamespace="http://www.hpi.de" id="spike_global">
+  <bsim:randomSeed>100</bsim:randomSeed>
+  <bsim:zoneOffset>+02:00</bsim:zoneOffset>
+  <bsim:resourceData>
+    <bsim:dynamicResource id="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e" name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e" defaultQuantity="27" defaultCost="0.0" defaultTimeUnit="HOURS">
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__10125" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__10138" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__10609" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__10629" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__10779" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__10809" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__10861" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__10881" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__10889" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__10899" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__10909" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__10910" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__10913" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__10929" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__10932" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__10972" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__10982" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__11009" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__11049" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__11079" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__11121" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__11169" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__11180" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__11181" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__11189" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__11259" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_a7e0a1e4-58f7-4c9d-83dd-faa6b22a293e__NOT_SET" timetableId="NOT_SET_profile_calendar" />
+    </bsim:dynamicResource>
+    <bsim:dynamicResource id="pool_node_cc450863-8930-4319-8641-267e83c8a4cd" name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd" defaultQuantity="40" defaultCost="0.0" defaultTimeUnit="HOURS">
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__10138" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__10228" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__10609" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__10629" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__10779" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__10809" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__10861" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__10863" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__10881" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__10889" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__10899" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__10909" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__10910" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__10912" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__10913" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__10914" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__10929" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__10931" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__10932" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__10933" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__10939" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__10972" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__10982" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__11000" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__11002" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__11003" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__11009" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__11119" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__11121" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__11122" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__11169" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__11179" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__11180" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__11181" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__11189" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__11201" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__11203" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__11259" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__11269" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_cc450863-8930-4319-8641-267e83c8a4cd__NOT_SET" timetableId="NOT_SET_profile_calendar" />
+    </bsim:dynamicResource>
+    <bsim:dynamicResource id="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2" name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2" defaultQuantity="42" defaultCost="0.0" defaultTimeUnit="HOURS">
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__10138" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__10228" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__10609" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__10629" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__10779" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__10809" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__10861" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__10863" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__10881" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__10889" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__10899" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__10909" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__10910" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__10912" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__10913" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__10914" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__10929" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__10931" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__10932" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__10933" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__10939" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__10972" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__10982" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__11000" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__11001" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__11002" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__11003" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__11009" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__11019" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__11049" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__11119" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__11121" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__11122" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__11169" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__11179" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__11180" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__11181" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__11189" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__11201" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__11203" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__11259" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_347ce5f3-ca89-4436-b31f-bf11e223e9e2__NOT_SET" timetableId="NOT_SET_profile_calendar" />
+    </bsim:dynamicResource>
+    <bsim:dynamicResource id="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204" name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204" defaultQuantity="38" defaultCost="0.0" defaultTimeUnit="HOURS">
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__10138" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__10609" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__10629" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__10789" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__10809" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__10861" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__10863" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__10881" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__10889" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__10899" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__10909" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__10910" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__10912" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__10913" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__10929" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__10931" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__10932" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__10939" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__10972" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__10982" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__11000" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__11002" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__11003" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__11009" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__11049" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__11119" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__11121" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__11122" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__11169" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__11179" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__11180" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__11181" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__11189" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__11201" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__11203" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__11259" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__11269" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_265a48ad-6188-49a0-9799-bdcc279e2204__NOT_SET" timetableId="NOT_SET_profile_calendar" />
+    </bsim:dynamicResource>
+    <bsim:dynamicResource id="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817" name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817" defaultQuantity="42" defaultCost="0.0" defaultTimeUnit="HOURS">
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__10138" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__10609" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__10629" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__10779" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__10789" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__10809" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__10861" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__10863" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__10881" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__10889" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__10899" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__10909" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__10910" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__10912" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__10913" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__10914" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__10929" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__10931" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__10932" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__10933" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__10939" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__10972" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__10982" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__11000" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__11001" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__11002" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__11003" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__11009" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__11049" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__11119" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__11121" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__11122" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__11169" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__11179" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__11180" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__11181" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__11189" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__11201" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__11203" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__11259" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__11269" timetableId="Undifferentiated_calendar" />
+      <bsim:instance name="pool_node_194e4a28-59d0-4bf4-b34b-8dea91634817__NOT_SET" timetableId="NOT_SET_profile_calendar" />
+    </bsim:dynamicResource>
+    <bsim:dynamicResource id="pool_node_667876f6-e64f-4d5d-9897-23336cd90f0e" name="pool_node_667876f6-e64f-4d5d-9897-23336cd90f0e" defaultQuantity="2" defaultCost="0.0" defaultTimeUnit="HOURS">
+      <bsim:instance name="pool_node_667876f6-e64f-4d5d-9897-23336cd90f0e__10188" timetableId="10188_profile_calendar" />
+      <bsim:instance name="pool_node_667876f6-e64f-4d5d-9897-23336cd90f0e__10809" timetableId="Undifferentiated_calendar" />
+    </bsim:dynamicResource>
+  </bsim:resourceData>
+  <bsim:timetables>
+    <bsim:timetable id="10188_profile_calendar">
+      <bsim:timetableItem from="MONDAY" to="MONDAY" beginTime="12:00:00" endTime="14:00:00" />
+      <bsim:timetableItem from="WEDNESDAY" to="WEDNESDAY" beginTime="19:00:00" endTime="20:00:00" />
+      <bsim:timetableItem from="FRIDAY" to="FRIDAY" beginTime="12:00:00" endTime="14:00:00" />
+    </bsim:timetable>
+    <bsim:timetable id="NOT_SET_profile_calendar">
+      <bsim:timetableItem from="MONDAY" to="MONDAY" beginTime="08:00:00" endTime="15:00:00" />
+      <bsim:timetableItem from="MONDAY" to="MONDAY" beginTime="16:00:00" endTime="17:00:00" />
+      <bsim:timetableItem from="MONDAY" to="MONDAY" beginTime="18:00:00" endTime="19:00:00" />
+      <bsim:timetableItem from="TUESDAY" to="TUESDAY" beginTime="08:00:00" endTime="09:00:00" />
+      <bsim:timetableItem from="TUESDAY" to="TUESDAY" beginTime="10:00:00" endTime="12:00:00" />
+      <bsim:timetableItem from="WEDNESDAY" to="WEDNESDAY" beginTime="10:00:00" endTime="11:00:00" />
+      <bsim:timetableItem from="WEDNESDAY" to="WEDNESDAY" beginTime="15:00:00" endTime="16:00:00" />
+      <bsim:timetableItem from="THURSDAY" to="THURSDAY" beginTime="09:00:00" endTime="11:00:00" />
+      <bsim:timetableItem from="FRIDAY" to="FRIDAY" beginTime="09:00:00" endTime="10:00:00" />
+      <bsim:timetableItem from="FRIDAY" to="FRIDAY" beginTime="11:00:00" endTime="16:00:00" />
+      <bsim:timetableItem from="SATURDAY" to="SATURDAY" beginTime="09:00:00" endTime="13:00:00" />
+      <bsim:timetableItem from="SATURDAY" to="SATURDAY" beginTime="14:00:00" endTime="16:00:00" />
+    </bsim:timetable>
+    <bsim:timetable id="Undifferentiated_calendar">
+      <bsim:timetableItem from="MONDAY" to="MONDAY" beginTime="07:00:00" endTime="20:00:00" />
+      <bsim:timetableItem from="TUESDAY" to="TUESDAY" beginTime="07:00:00" endTime="20:00:00" />
+      <bsim:timetableItem from="WEDNESDAY" to="WEDNESDAY" beginTime="07:00:00" endTime="20:00:00" />
+      <bsim:timetableItem from="THURSDAY" to="THURSDAY" beginTime="07:00:00" endTime="20:00:00" />
+      <bsim:timetableItem from="FRIDAY" to="FRIDAY" beginTime="06:00:00" endTime="20:00:00" />
+      <bsim:timetableItem from="SATURDAY" to="SATURDAY" beginTime="09:00:00" endTime="16:00:00" />
+      <bsim:timetableItem from="SUNDAY" to="SUNDAY" beginTime="10:00:00" endTime="13:00:00" />
+      <bsim:timetableItem from="SUNDAY" to="SUNDAY" beginTime="20:00:00" endTime="22:00:00" />
+    </bsim:timetable>
+  </bsim:timetables>
+</bsim:globalConfiguration>
