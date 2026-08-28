@@ -305,12 +305,20 @@ def simulate_all_samples(
 
             # write to disk for this run & chunk
             write_dataframe_chunk(df_proc, "process", i, results_dir, disk_format=disk_format)
-            # Commenting out tasks, resources, cases, errors to reduce disk usage
+            # Tasks, resources and cases stay off to save disk -- nothing reads them.
             # write_dataframe_chunk(df_task, "tasks", i, results_dir, disk_format=disk_format)
             # write_dataframe_chunk(df_res, "resources", i, results_dir, disk_format=disk_format)
             # write_dataframe_chunk(df_case, "cases", i, results_dir, disk_format=disk_format)
-            # if not df_err.empty:
-            #    write_dataframe_chunk(df_err, "errors", i, results_dir, disk_format=disk_format)
+
+            # Errors are different: simulate_sample() swallows every exception and
+            # returns empty row lists, so without this a failed sample is invisible
+            # -- the parquet is just silently short. Costs nothing when nothing fails.
+            if not df_err.empty:
+                write_dataframe_chunk(df_err, "errors", i, results_dir, disk_format=disk_format)
+                print(
+                    f"⚠️  {len(df_err)} sample(s) failed in chunk {i} "
+                    f"(run {run_idx}, {total_cases} cases) — see errors_chunk_*"
+                )
 
             total_proc += len(df_proc)
             total_task += len(df_task)

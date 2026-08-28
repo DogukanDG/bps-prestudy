@@ -19,3 +19,6 @@ pyarrow==17.0.0
 
 # Only needed by run_bpic2013_logdistance.py (slides 14-15)
 log-distance-measures==2.1.0
+
+# Test suite (tests/)
+pytest==9.1.1
