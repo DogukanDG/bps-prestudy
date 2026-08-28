@@ -60,9 +60,9 @@ def values_of(dist: Dict[str, Any]) -> List[float]:
 def bounds_of(dist: Dict[str, Any]) -> tuple[float | None, float | None]:
     """The (min, max) Simod recorded, where the family carries them.
 
-    Prosimos resamples out-of-range draws rather than clipping, so treating
-    these as truncation bounds is an approximation -- documented, and measured
-    in the T3 fidelity test.
+    Prosimos rejects and redraws out-of-range values, so these are the support
+    of a truncated distribution, not clipping limits. `draw_clipped` reproduces
+    that; T3 measures the result against pix-framework's own sampler.
     """
     name = dist["distribution_name"]
     p = values_of(dist)
@@ -104,15 +104,50 @@ def sample_once(dist: Dict[str, Any], rng: random.Random) -> float:
     raise ValueError(f"unsupported distribution family: {name!r}")
 
 
+# Give up rather than spin if the bounds make draws almost impossible.
+_MAX_REJECTION_ROUNDS = 200
+
+
 def draw_clipped(dist: Dict[str, Any], rng: random.Random, n: int) -> List[float]:
-    """n draws, clipped to the recorded bounds and to non-negative."""
+    """n draws, truncated to the recorded bounds the way Prosimos truncates.
+
+    Prosimos *rejects and redraws* out-of-range values
+    (`probability_distributions.evaluate_distribution_function`, and
+    `DurationDistribution.generate_sample` in pix-framework), so the result is
+    the conditional distribution given the bounds. Clipping instead -- pinning
+    out-of-range draws to the nearest bound -- piles mass onto the endpoints and
+    is a materially different distribution.
+
+    It matters here because the bounds are tight. On the representative
+    BPIC 2012 gamma, 39% of raw draws fall outside [4500, 17820]: 33% below and
+    6% above. Clipping gave a mean of 8157 s against Prosimos's 9134 s, an 11%
+    understatement that no amount of bucket resolution would have fixed.
+
+    The name is kept for compatibility; the behaviour is rejection sampling.
+    """
     lo, hi = bounds_of(dist)
-    out = []
-    for _ in range(n):
-        v = sample_once(dist, rng)
-        if lo is not None:
-            v = min(max(v, lo), hi)
-        out.append(max(v, 0.0))
+    out: List[float] = []
+
+    if lo is None:
+        for _ in range(n):
+            out.append(max(sample_once(dist, rng), 0.0))
+        return out
+
+    rounds = 0
+    while len(out) < n and rounds < _MAX_REJECTION_ROUNDS:
+        for _ in range(n - len(out)):
+            v = sample_once(dist, rng)
+            if v >= 0.0 and lo <= v <= hi:
+                out.append(v)
+        rounds += 1
+
+    if len(out) < n:
+        # Degenerate bounds (or a distribution that cannot reach them): fall
+        # back to clipping so the caller still gets a usable sample, rather
+        # than looping forever or returning short.
+        while len(out) < n:
+            out.append(min(max(sample_once(dist, rng), lo), hi))
+
     return out
 
 
