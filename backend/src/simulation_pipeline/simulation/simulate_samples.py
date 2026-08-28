@@ -1,4 +1,3 @@
-from prosimos.simulation_engine import run_simulation as _simulate_samples
 from src.simulation_pipeline.convert_samples.write_converted_samples import joblib_tqdm
 from typing import Dict, Any, Iterable, List
 from joblib import Parallel, delayed
@@ -29,7 +28,8 @@ def simulate_samples(
     seed: int | None = None,
     start_iso="2023-01-01T00:00:00+02:00",
     disk_format="parquet",  # or "csv"
-
+    engine: str = "prosimos",
+    engine_options: Dict[str, Any] | None = None,
 ):
     """
     Run Prosimos simulations for all sampled JSON chunks and prepare
@@ -122,6 +122,8 @@ def simulate_samples(
             chunk_files=chunk_files,
             replication_runs=replication_runs,
             disk_format=disk_format,
+            engine=engine,
+            engine_options=engine_options,
         )
 
     # --- 5) Merge and average out KPIs to single files and save to sensitivity analysis folder ---
@@ -181,6 +183,35 @@ def simulate_samples(
     print(f"SA configuration saved to: {sa_config_path}\n")
 
 
+def _engine_worker(engine: str, engine_options: Dict[str, Any] | None):
+    """Return the per-sample worker for `engine`.
+
+    joblib's loky backend pickles the callable to send it to worker processes,
+    so this must be a module-level function or a functools.partial over one --
+    a closure or lambda raises PicklingError, which is how the earlier BPIC
+    2013 runs failed.
+    """
+    engine = (engine or "prosimos").lower()
+
+    if engine == "prosimos":
+        return simulate_sample
+
+    if engine == "scylla":
+        from functools import partial
+
+        from .scylla.run_scylla import resolve_jar, simulate_sample_scylla
+
+        options = dict(engine_options or {})
+        # Resolved once here rather than in every worker, so a missing jar
+        # fails immediately instead of once per sample.
+        options["jar_path"] = resolve_jar(options.pop("jar_path", None))
+        return partial(simulate_sample_scylla, **options)
+
+    raise ValueError(
+        f"unknown engine {engine!r}; expected 'prosimos' or 'scylla'"
+    )
+
+
 def simulate_all_samples(
     total_cases: int,
     bpmn_path: str | Path,
@@ -190,6 +221,8 @@ def simulate_all_samples(
     chunk_files: Iterable[str | Path],
     replication_runs: int,
     disk_format: str = "parquet",
+    engine: str = "prosimos",
+    engine_options: Dict[str, Any] | None = None,
 ) -> None:
     """
     Simulate all sample-chunk JSON files for a given case volume and
@@ -222,12 +255,21 @@ def simulate_all_samples(
         Number of replication runs (run_1, run_2, ...).
     disk_format : str, optional
         Output format for KPI chunks, "parquet" (default) or "csv".
+    engine : str, optional
+        Simulation engine, "prosimos" (default) or "scylla". Both produce the
+        same `process_rows` schema; the Scylla arm leaves the three idle_*
+        metrics as NaN because Prosimos defines them against resource calendars
+        in a way Scylla does not reproduce.
+    engine_options : dict, optional
+        Engine-specific settings. For "scylla": jar_path, buckets, n_draws,
+        weighted, heap, keep_output. Ignored by "prosimos".
 
     Returns
     -------
     None
         All outputs are written under `<base_out_dir>/sim_results_<total_cases>_cases/`.
     """
+    run_one = _engine_worker(engine, engine_options)
     base_out_dir = Path(base_out_dir)
     chunk_files = [Path(cf) for cf in chunk_files]
 
@@ -275,7 +317,7 @@ def simulate_all_samples(
                     prefer="processes",
                     verbose=0,
                 )(
-                    delayed(simulate_sample)(
+                    delayed(run_one)(
                         sample_id=int(sample_id),
                         sample_data=all_samples[sample_id],
                         bpmn_path=bpmn_path,
@@ -406,6 +448,11 @@ def simulate_sample(
     tmp_path = None
 
     try:
+        # Imported here rather than at module scope so the Scylla arm does not
+        # require Prosimos to be installed. Import cost is negligible next to a
+        # simulation, and joblib workers import the module once each anyway.
+        from prosimos.simulation_engine import run_simulation as _simulate_samples
+
         # Write this sample's JSON config to a temp file
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".json", delete=False, encoding="utf-8"

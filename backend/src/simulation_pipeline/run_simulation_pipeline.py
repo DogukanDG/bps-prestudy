@@ -4,7 +4,6 @@ import numpy as np
 import json
 import os
 
-from prosimos.simulation_engine import run_simulation as _run_simulation
 from src.simulation_pipeline.extract_parameters.extract_parameters import extract_parameters
 from src.simulation_pipeline.extract_parameters.extract_tasks_resources import extract_tasks_resources
 from src.simulation_pipeline.extract_parameters.extract_arrival_distribution import extract_arrival_distribution
