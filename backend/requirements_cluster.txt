@@ -1,5 +1,10 @@
 # Dependencies for running the experiment scripts on the cluster.
 #
+# Requires Python >= 3.9, < 3.12 (prosimos constraint). Create with:
+#     conda create -n bps python=3.11
+#     conda activate bps
+#     pip install -r requirements_cluster.txt
+#
 # The repository's requirements.txt targets the Flask app and omits pandas and
 # pyarrow, which arrive indirectly through simod. Pinning them here keeps the
 # parquet format identical to the local runs; without pyarrow every run fails
@@ -11,6 +16,12 @@
 SALib==1.4.7
 prosimos==2.0.6
 scipy==1.16.3
+
+# Arrives transitively via prosimos, but pinned deliberately: it is the
+# authority on Simod's distribution parameter order, which the Scylla
+# converter's mapping is built on. An unpinned upgrade could change that
+# order silently.
+pix-framework==0.13.17
 joblib==1.4.2
 tqdm==4.66.4
 pandas==2.3.3

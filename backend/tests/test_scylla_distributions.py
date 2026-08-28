@@ -268,3 +268,62 @@ def test_every_family_in_the_real_models_is_handled():
         assert model["arrival_time_distribution"]["distribution_name"] in known
 
     assert checked > 0, "no model files found to check"
+
+
+# --------------------------------------------------------------------------
+# Against pix-framework itself
+# --------------------------------------------------------------------------
+
+def test_parameter_order_matches_pix_framework():
+    """The authoritative check: build a distribution with known moments in
+    pix-framework, serialise it the way Simod does, and read it back.
+
+    Everything else in this module pins the order against the model files.
+    This pins it against the code that writes them, which is what makes the
+    mapping defensible rather than empirical. Skips where pix-framework is not
+    installed (the Scylla arm does not require it).
+    """
+    pix = pytest.importorskip("pix_framework.statistics.distribution")
+
+    cases = [
+        # (type, kwargs, expected [index -> value])
+        ("fix", dict(name="fix", mean=42.0), {0: 42.0}),
+        ("expon", dict(name="expon", mean=600.0, minimum=1.0, maximum=9999.0),
+         {0: 600.0, 1: 1.0, 2: 9999.0}),
+        ("norm", dict(name="norm", mean=3240.0, std=300.0, minimum=2940.0, maximum=3540.0),
+         {0: 3240.0, 1: 300.0, 2: 2940.0, 3: 3540.0}),
+        ("uniform", dict(name="uniform", minimum=100.0, maximum=500.0),
+         {0: 100.0, 1: 500.0}),
+        ("lognorm", dict(name="lognorm", mean=6940.0, var=44_007_200.0,
+                         minimum=0.0, maximum=1e9),
+         {0: 6940.0, 1: 44_007_200.0}),
+        ("gamma", dict(name="gamma", mean=7890.0, var=32_877_900.0,
+                       minimum=0.0, maximum=1e9),
+         {0: 7890.0, 1: 32_877_900.0}),
+    ]
+
+    for family, kwargs, expected in cases:
+        emitted = pix.DurationDistribution(**kwargs).to_prosimos_distribution()
+        assert emitted["distribution_name"] == family
+        params = [p["value"] for p in emitted["distribution_params"]]
+        for index, value in expected.items():
+            assert params[index] == pytest.approx(value), \
+                f"{family} param[{index}]"
+
+        # And our own reader agrees with that layout.
+        assert D.values_of(emitted)[0] == pytest.approx(params[0])
+
+
+def test_our_native_mapping_round_trips_through_pix_framework():
+    """A distribution built in pix-framework, serialised, then converted to
+    Scylla XML must carry the same mean and spread."""
+    pix = pytest.importorskip("pix_framework.statistics.distribution")
+
+    emitted = pix.DurationDistribution(
+        name="norm", mean=3240.0, std=300.0, minimum=0.0, maximum=1e9
+    ).to_prosimos_distribution()
+
+    el = D.append_native(root(), emitted)
+    assert float(child_text(el, "mean")) == pytest.approx(3240.0)
+    # The std must survive unchanged -- this is the SimuBridge bug.
+    assert float(child_text(el, "standardDeviation")) == pytest.approx(300.0)
