@@ -1,14 +1,20 @@
 # Scylla engine adapter — findings that need a decision
 
-Six things surfaced while building and validating the converter that are not
+Seven things surfaced while building and validating the converter that are not
 implementation details. Each changes how the Scylla results should be read.
 
-Three came from writing the code. Three more came from actually running both
-engines against each other (T1), and none of those were visible in the Phase 1
-spike or in any unit test — they only appear when the two engines simulate the
-same model.
+Three came from writing the code. Four more came from running both engines
+against each other (T1, T4), and none of those were visible in the Phase 1 spike
+or in any unit test — they only appear when the two engines simulate the same
+model and disagree.
 
 Written 2026-08-28, against BPIC 2012 and BPIC 2017.
+
+**One earlier conclusion in this file was wrong and has been corrected.** After
+T1, the residual divergence was attributed to calendar semantics, on the
+strength of a single experiment (replacing every calendar with 24/7 closed most
+of the gap). T4 tested that directly and it does not hold — see "Where the
+engines still differ".
 
 ---
 
@@ -16,8 +22,8 @@ Written 2026-08-28, against BPIC 2012 and BPIC 2017.
 
 T1 strips a model down to something both engines *must* agree on: fixed
 durations, one always-available resource, a 24/7 calendar, branching forced to
-1.0/0.0. Under those conditions cycle time is arithmetic, so any disagreement
-is a translation bug. It now passes 10/10 — but only after three fixes.
+1.0/0.0. Under those conditions cycle time is arithmetic, so any disagreement is
+a translation bug. It passes 10/10 — after three fixes.
 
 ### 1. Per-activity pooling inflated capacity 4.1x
 
@@ -33,8 +39,8 @@ activities became four independent instances:
 | BPIC 2017 | 105 | 433 (4.1x) |
 
 91% of BPIC 2012's resources and 96% of BPIC 2017's appear in more than one
-activity, so almost no contention *between* activities survived. This was not a
-T1-only artefact — it inflated capacity in every real run too.
+activity, so almost no contention *between* activities survived. Not a T1-only
+artefact — it inflated capacity in every real run too.
 
 **What was done.** One shared pool holds each resource exactly once
 (`SHARED_POOL_ID`). Per-resource calendars still survive as named `<instance>`
@@ -42,9 +48,9 @@ elements, so `is_resource_calendars` stays meaningful.
 
 **What it costs.** Eligibility — which resource may perform which activity — is
 now lost as well. Scylla cannot express both eligibility and correct capacity,
-and capacity is what queueing depends on. Eligibility was already partly gone
-(durations are pooled per activity); this extends the same compromise to
-availability.
+and capacity is what queueing depends on. See finding 7: eligibility turns out
+to be the main remaining source of divergence, so this trade is worth stating
+explicitly in the write-up rather than burying.
 
 ### 2. Load weighting rested on a false assumption
 
@@ -68,10 +74,6 @@ weighting, 21% below without.
 the comparison is worth reporting and because `weighted=True` is how the effect
 was measured rather than assumed.
 
-**Worth noting for the write-up.** This is the second assumption in this project
-that measurement overturned (the first being SimuBridge's parameter indices).
-Both were plausible and both were wrong.
-
 ### 3. Equal-width histogram buckets destroyed the mean
 
 **The finding.** lognormal and gamma have no Scylla equivalent and are ~60% of
@@ -85,58 +87,100 @@ largest BPIC 2012 activity:
 
 **What was done.** Buckets are now equal-*frequency*, each carrying the mean of
 its contents, which makes the sample mean exact by construction — 0.00% error at
-any bucket count, even 10.
+any bucket count, even 10. The top decile is emitted sample by sample rather
+than averaged, so the extreme tail survives (it was otherwise clipped from
+36448 s to 3765 s), and queueing is driven by exactly those long services.
 
-Averaging inside a bucket then clipped the extreme tail (36448 s down to
-3765 s), and queueing is driven by exactly those long services, so the top decile
-is emitted sample by sample instead. Both the mean and the maximum now survive.
+---
+
+## What T4 found
+
+T4 changes one variable at a time from the T1 baseline, durations fixed
+throughout so any difference is structural rather than sampling noise.
+
+| | Setup | Scylla / Prosimos cycle time |
+|---|---|---|
+| A | degenerate baseline (T1 conditions) | 1.00 |
+| B | + real resources and their real calendars | **0.53** |
+| C | real resources, all on a 24/7 calendar | 1.00 |
+| D | one resource, on a real narrow calendar | 1.00 |
+| E | all resources, one shared narrow calendar, full eligibility | 0.97 |
+
+### 4. Calendar semantics is *not* the cause — the earlier conclusion was wrong
+
+C isolates capacity, D isolates calendars, E combines them. All three agree.
+Off-shift time, wrap-around ranges and multi-period calendars are handled the
+same way by both engines.
+
+The earlier attribution came from one experiment on the real model: replacing
+every calendar with 24/7 moved `cycle_time` from +121% to +10%, which looked
+like calendars. It was not — 24/7 also removes the *interaction* between limited
+availability and restricted eligibility, and it is the eligibility half that
+matters (finding 7). A single experiment with two variables moving at once was
+not enough to attribute anything, and this is worth remembering for the write-up.
+
+### 5. Scylla silently drops histogram entries that share a value
+
+Found while chasing the residual, and larger than what was being chased.
+
+Scylla parses entries into a `HashMap<Double, Double>` using
+`entries.put(value, frequency)` (`EmpiricalDistribution.java:11`) — overwrite,
+not accumulate. Two entries with the same value collapse into one, and the first
+one's mass disappears with no warning.
+
+Easy to hit: a pool of resources with identical fixed durations produces
+identical bucket means. On a 38-resource BPIC 2012 activity, 100 emitted entries
+became 75 and the pooled mean fell from 1095 s to **556 s**, against a model mean
+of 1095 s.
+
+**What was done.** `append_histogram` accumulates into `{value -> frequency}`
+before emitting, so no two entries share a value. `processing_time` against
+Prosimos improved from -53% to -21%, and is now consistent across fixed and real
+durations (-20.7% / -20.9%) where it was not before.
+
+DESMO-J itself samples `DiscreteDistEmpirical` correctly — verified directly,
+mean 200.3 for 100/200/300 at equal frequency, with both raw and normalised
+frequencies. The loss was entirely in Scylla's parser, and is now avoided in
+what we emit rather than needing a patch to Scylla.
 
 ---
 
 ## What building the converter found
 
-### 4. `waiting_time` does not mean the same thing in both engines
+### 6. Two metrics do not mean the same thing in both engines
 
-**The finding.** Scylla's reported waiting total exceeds its own flow time total
-— 88.0M s against 71.5M s on BPIC 2012 at 3000 cases. Impossible for a
-wall-clock measure: a case cannot spend more time waiting than it exists.
-
-**Why.** `StatisticsLogger` (`statslogger_nojar/StatisticsLogger.java:186-195`)
+**`waiting_time`.** Scylla's reported waiting total exceeds its own flow time
+total — 88.0M s against 71.5M s on BPIC 2012 at 3000 cases. Impossible for a
+wall-clock measure. `StatisticsLogger` (`statslogger_nojar/StatisticsLogger.java:186-195`)
 accumulates the enable → begin gap for *every activity instance* and sums them
-per case, so activities that wait concurrently are counted more than once.
+per case, so activities waiting concurrently are counted more than once.
 Prosimos measures waiting as wall-clock time per case.
 
-```java
-else if (transition == ProcessNodeTransitionType.BEGIN) {
-    Long enableTimestamp = enabledTasks.get(taskInstanceIdentifier);
-    if (enableTimestamp != null) {
-        long duration = timestamp - enableTimestamp;
-        durationWaiting += duration;        // summed across concurrent waits
-```
+T1 sharpened this: even where nothing can queue, Prosimos reports 60 s of
+waiting, unchanged when arrivals are spaced ten times further apart. Its figure
+is structural too, just structured differently.
 
-`processing_time` is unaffected — Scylla's `effective` matches the sum of
-per-activity durations (13.9M s against 13.3M s) — and `cycle_time` /
-`flow_time` share a definition.
+**`processing_time`.** The same shape of gap, in the other direction. Scylla's
+`effective` is `durationTotal - durationInactive`: wall-clock time during which
+*at least one* activity was running, so concurrent activities count once.
+Prosimos sums activity durations. Measured on BPIC 2012 at 500 cases with fixed
+durations: 2055 s/case against 4726 s/case. This is what the residual -21%
+after finding 5 is.
 
-T1 sharpened this: even in a model where nothing can queue, Prosimos reports
-60 s of waiting, and spacing arrivals ten times further apart leaves it
-unchanged. So its waiting figure is structural too, just structured differently.
+**What was done.** Both are emitted; `check_consistency()` warns when waiting
+exceeds cycle time.
 
-**What was done.** The value is still emitted — sensitivity analysis measures
-how a metric *responds* to parameter changes, not its absolute level, and this
-is still a monotone measure of queueing. `check_consistency()` warns whenever
-waiting exceeds cycle time.
-
-**Still open.** Whether the Scylla arm reports waiting-time sensitivity at all.
-Cross-engine comparison of waiting time is not defensible as things stand:
+**Still open.** Whether the Scylla arm reports either metric's sensitivity.
+`cycle_time` shares a definition across both engines and is safe. For the other
+two, either:
 
 - lead with `cycle_time` only, and state the limitation; or
-- recompute waiting per case from the XES log, which makes it comparable but
+- recompute both per case from the XES log, which makes them comparable but
   gives up the "no event-log parsing needed" result from the spike.
 
 The first is cheap and honest. **A supervisor decision, not a coding one.**
 
-### 5. The dispatcher must not be a closure
+### 7. The dispatcher must not be a closure
 
 `bpic2013_run_times.csv` records three runs lost this way:
 
@@ -147,13 +191,13 @@ The first is cheap and honest. **A supervisor decision, not a coding one.**
 `simulate_all_samples` dispatches through `joblib.Parallel(backend="loky")`,
 which pickles the worker callable. Selecting an engine invites a closure, and a
 closure raises `PicklingError` at the top of a multi-hour cluster run.
-`_engine_worker()` returns a module-level function or a `functools.partial`
-over one, and a test pickles both workers to keep it that way.
+`_engine_worker()` returns a module-level function or a `functools.partial` over
+one, and a test pickles both workers to keep it that way.
 
 Those earlier BPIC 2013 failures remain unexplained and are worth a look before
 the next large Morris run.
 
-### 6. Two Scylla quirks worth knowing before debugging anything
+### 8. Two Scylla quirks worth knowing before debugging anything
 
 **`--output` is silently ignored.** Parsed, but never wired to the field
 `SimulationManager.run()` reads, so output lands in an auto-named
@@ -167,30 +211,43 @@ what was written, which is why both builders validate their own output and
 
 ---
 
-## Where the engines still differ, and why it is not a bug
+## Where the engines still differ
 
-On the real BPIC 2012 model at 500 cases, `cycle_time` is about 121% above
-Prosimos. Replacing every calendar with 24/7 brings that to **+10%**.
-
-So the remaining gap is almost entirely **calendar semantics**, not translation.
-The two engines handle off-shift time differently, and characterising that is
-T4's job. The converter is not the suspect here — T1 rules it out under
-controlled conditions, and the 24/7 result localises what is left.
-
-Attribution as it stands:
+Attribution as it now stands, on BPIC 2012:
 
 | Source | Size | Ours to fix? |
 |---|---|---|
-| Calendar semantics | ~110 pp of the 121% | No — engine difference, characterise in T4 |
-| Discretisation | ~0% on the mean | No longer material after fix 3 |
-| Pooling (durations + eligibility) | included in the residual +10% | Forced by Scylla's model |
-| Weighting | was 11–65%, now 0 | Fixed by turning it off |
+| **Eligibility** (shared pool ignores which resource may do which activity) | dominant | No — Scylla cannot express it alongside correct capacity |
+| `processing_time` / `waiting_time` definitions | -21% on processing | No — different measures, not different results |
+| Calendar semantics | none detectable | Ruled out by T4 (C, D, E) |
+| Discretisation | ~0% on the mean | Fixed (findings 3, 5) |
+| Weighting | was 11-65% | Fixed by turning it off (finding 2) |
+
+Eligibility is the honest headline. Prosimos restricts each activity to the
+resources Simod found performing it; the shared pool lets any resource do
+anything:
+
+| activity | eligible resources | share of the 47 |
+|---|---|---|
+| 667876f6-e | 2 | 4% |
+| a7e0a1e4-5 | 27 | 57% |
+| 265a48ad-6 | 38 | 81% |
+| cc450863-8 | 40 | 85% |
+| 347ce5f3-c | 42 | 89% |
+| 194e4a28-5 | 42 | 89% |
+
+One caveat worth recording: giving Prosimos full eligibility too did *not* close
+the gap on the real model (+118% became +140%), so eligibility is not a simple
+additive term. It interacts with capacity and with the metric definitions above.
+Quantifying it properly is a T5 job, and it belongs in the limitations section
+either way — this is a structural difference between the two simulation models,
+not a converter defect.
 
 ---
 
 ## Environment
 
-Both engines run on this machine now. Prosimos needs Python < 3.12, and current
+Both engines run on this machine. Prosimos needs Python < 3.12, and current
 Scylla needs Java 11 (`pom.xml` targets 11 — an older JVM on PATH fails with
 `UnsupportedClassVersionError`).
 
@@ -228,11 +285,12 @@ the comparison reference — the Prosimos arm does not need re-running. The
 | | |
 |---|---|
 | Converter | complete — 5 modules, `engine="scylla"` runs end to end |
-| T1 determinism | **passing 10/10** — engines agree exactly when nothing is random |
-| Tests | 185 passing, none skipped |
+| T1 determinism | passing 10/10 — engines agree exactly when nothing is random |
+| T4 calendars | passing 7/7 — calendars ruled out, eligibility identified |
+| Tests | 195 passing, none skipped |
 | Prosimos arm | unchanged; default engine, existing callers unaffected |
-| Next | T4 (calendars) — the one unexplained source of divergence |
-| Open decision | waiting-time reporting (finding 4) |
+| Next | T3 (distribution fidelity), T5 (quantify eligibility on the real model) |
+| Open decision | whether to report waiting_time and processing_time sensitivity |
 
 `compare_engines.py` runs both engines on a real model and attributes the gap to
 weighting, discretisation and pooling separately.
