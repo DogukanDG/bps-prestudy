@@ -39,6 +39,8 @@ def run_simulation_pipeline(
     cases_list: list[int],
     simulation_results_folder: str,
     seed: int | None = None,
+    engine: str = "prosimos",
+    engine_options: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """
     Orchestrate sampling, parameter conversion, JSON generation, and process simulation.
@@ -299,6 +301,8 @@ def run_simulation_pipeline(
         num_levels=num_levels,
         calc_second_order=calc_second_order,
         seed=seed,
+        engine=engine,
+        engine_options=engine_options,
     )
 
     return (

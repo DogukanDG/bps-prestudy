@@ -183,6 +183,43 @@ def simulate_samples(
     print(f"SA configuration saved to: {sa_config_path}\n")
 
 
+def _n_jobs_for(engine: str, engine_options: Dict[str, Any] | None) -> int:
+    """How many samples to run at once.
+
+    Prosimos runs in-process and is memory-light, so the historical -5 ("every
+    core but four") is right for it. Scylla is a JVM per sample: with eight
+    concurrent JVMs on an 8 GB machine the runs die with "insufficient memory
+    for the Java Runtime Environment", and the failures are easy to miss --
+    SALib silently returns [] when the sample matrix no longer matches the
+    output vector. So the Scylla arm is sized by memory rather than by cores.
+    """
+    options = engine_options or {}
+    if options.get("n_jobs") is not None:
+        return int(options["n_jobs"])
+    if (engine or "prosimos").lower() != "scylla":
+        return -5
+
+    import os
+    heap = str(options.get("heap") or "1g").lower()
+    gb = (float(heap[:-1]) if heap.endswith("g")
+          else float(heap[:-1]) / 1024 if heap.endswith("m")
+          else 1.0)
+
+    total_gb = 8.0
+    try:
+        import shutil  # noqa: F401
+        if hasattr(os, "sysconf") and "SC_PAGE_SIZE" in os.sysconf_names:
+            total_gb = (os.sysconf("SC_PAGE_SIZE")
+                        * os.sysconf("SC_PHYS_PAGES")) / 1024**3
+    except Exception:
+        pass
+
+    # Leave roughly a third of RAM for the OS and the parent process.
+    by_memory = max(1, int((total_gb * 0.6) / max(gb, 0.25)))
+    by_cores = max(1, (os.cpu_count() or 4) - 4)
+    return min(by_memory, by_cores)
+
+
 def _engine_worker(engine: str, engine_options: Dict[str, Any] | None):
     """Return the per-sample worker for `engine`.
 
@@ -312,7 +349,7 @@ def simulate_all_samples(
                 leave=False,
             ):
                 outs = Parallel(
-                    n_jobs=-5,
+                    n_jobs=_n_jobs_for(engine, engine_options),
                     backend="loky",
                     prefer="processes",
                     verbose=0,

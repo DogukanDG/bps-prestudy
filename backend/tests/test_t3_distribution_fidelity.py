@@ -328,10 +328,16 @@ def test_pooled_activity_durations_are_faithful(dataset):
         resources = task["resources"]
         per_resource = max(1, 8000 // len(resources))
 
-        reference = []
-        for resource in resources:
-            reference.extend(reference_sample(resource, per_resource))
-        reference_mean = statistics.mean(reference)
+        # Average the reference too: it is an independent draw and carries the
+        # same sampling noise as the candidate, so pinning one against a single
+        # draw of the other is flaky rather than informative.
+        reference_means = []
+        for _ in range(trials):
+            reference = []
+            for resource in resources:
+                reference.extend(reference_sample(resource, per_resource))
+            reference_means.append(statistics.mean(reference))
+        reference_mean = statistics.mean(reference_means)
 
         means = []
         for trial in range(trials):
