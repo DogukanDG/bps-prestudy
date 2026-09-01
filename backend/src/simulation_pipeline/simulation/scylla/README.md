@@ -303,6 +303,52 @@ follow the assigned resource, verified with a bimodal test model. What it
 exposes is that per-resource durations and availability-based assignment
 interact, and Prosimos and Scylla differ in the second.
 
+### Where the remaining gap actually comes from (measured)
+
+Two candidates were on the table for the 0.47x undershoot: the lost eligibility
+(every resource can perform every activity under the shared pool) and the
+engines' differing resource-selection policies. Both measured on BPIC 2012 at
+500 cases.
+
+**Eligibility is not it, and works the other way.** Running Prosimos against
+itself, once with the real eligibility and once with every resource eligible for
+everything:
+
+| Prosimos | cycle time |
+|---|---|
+| real eligibility | 6684 |
+| everyone eligible | 8112 |
+
+Losing eligibility *raises* cycle time by 21%. It cannot explain an undershoot.
+(Which is intuitive in hindsight: opening every activity to every resource means
+more contention for the same 47 resources, not less.)
+
+**Selection policy is it.** Give every resource on an activity the same duration
+and the policies cannot differ in effect; restore the real per-resource
+durations and they can:
+
+| | Scylla / Prosimos |
+|---|---|
+| all resources equally fast | **0.87** |
+| real per-resource durations | **0.49** |
+
+So roughly 0.87 is what everything else adds up to, and the drop to 0.49 is
+entirely the interaction between per-resource durations and how each engine
+picks a resource. Prosimos takes the one that becomes free earliest, keeping
+busy resources in the queue; Scylla takes one that is free right now, so fast
+resources return to the pool repeatedly and take disproportionately more work.
+
+**A third plugin could close this.** `ResourceAssignmentPluggable` exists and is
+consulted at the top of `QueueManager.getResourcesForEvent()` -- a plugin that
+declares interest replaces Scylla's assignment logic entirely, before the
+all-required-at-once semantics or the pool are involved. That is a cleaner
+extension point than either of the two plugins already written, and it would let
+us restore eligibility *and* match Prosimos's selection rule in one place.
+
+Whether to do it is a scope decision. The gap is now understood and
+attributable, which may be enough for the write-up; closing it would make the
+two arms more directly comparable at the cost of another plugin.
+
 ### What this means for the comparison
 
 The gap is no longer dominated by something missing from Scylla. It is dominated
