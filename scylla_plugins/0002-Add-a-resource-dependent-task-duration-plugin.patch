@@ -1,0 +1,692 @@
+From cf17d19224770b298d95d4ee94c5b94ad4fe61d1 Mon Sep 17 00:00:00 2001
+From: DogukanDG <dagtekindogukan1@gmail.com>
+Date: Tue, 1 Sep 2026 16:53:02 +0200
+Subject: [PATCH 2/2] Add a resource-dependent task duration plugin
+
+Scylla gives an activity a single duration regardless of who performs it.
+Process models discovered by Simod in differentiated mode give every resource
+its own distribution per activity -- up to 42 per activity on BPIC 2012, with
+the fastest and slowest more than a hundredfold apart.
+
+The plugin reads a <resourceDurations> block inside a task and uses the
+distribution belonging to the resource actually assigned. The node-level
+<duration> stays as the fallback, so a build without the plugin runs the model
+unchanged.
+
+This needed a small core change, unlike the arrival calendar plugin. The
+assigned resource is in scope when the duration is drawn -- TaskBeginEvent
+samples at line 87 and reads the resource tuple at line 94 -- but
+getDistributionSample() took only a node id, and TaskBeginEventPluggable fires
+after the duration is already sampled. Doing it purely from an existing hook was
+checked and is not possible: both resource-assignment paths (TaskEnableEvent for
+an immediate start, SimulationModel when the task was queued) complete before
+TaskBeginEvent runs, and TaskEnableEventPluggable fires while a queued task
+still has no resource.
+
+So ProcessSimulationComponents gains a resource-aware overload that consults a
+registry a plugin fills, falling back to the node-level distribution when it is
+empty, and TaskBeginEvent passes the tuple it already holds. Default behaviour
+is unchanged for any model without the new element.
+
+The lookup also tries the part of an instance name after "__", so a converter
+that pools several resources into one dynamicResource can still identify the
+original resource. Scylla names running resources by instance name, which
+otherwise loses that.
+
+Measured on BPIC 2012 at 500 cases: with the plugin, mean cycle time drops from
+0.84x Prosimos to 0.47x. That is the opposite of the intended direction and is
+not a defect -- Scylla assigns whichever pool instance is free, so fast
+resources finish sooner, free up sooner, and take disproportionately more work.
+On W_Completeren aanvraag the declared resource means run 6.7 s to 1060.7 s with
+a median of 343.8 s, while the realised median is 182 s. Prosimos allocates
+near-uniformly instead. The engines differ in how they choose a resource, and
+per-resource durations make that visible rather than causing it.
+---
+ ...eDurationDistributionConversionPlugin.java |  84 ++++++
+ .../ResourceDurationPluginUtils.java          |  56 ++++
+ .../ResourceDurationSCParserPlugin.java       | 107 +++++++
+ .../ProcessSimulationComponents.java          |  55 ++++
+ .../simulation/event/TaskBeginEvent.java      | 283 +++++++++---------
+ .../resources/META-INF/plugins/plugins_list   |   1 +
+ 6 files changed, 450 insertions(+), 136 deletions(-)
+ create mode 100644 src/main/java/de/hpi/bpt/scylla/plugin/resourceduration/ResourceDurationDistributionConversionPlugin.java
+ create mode 100644 src/main/java/de/hpi/bpt/scylla/plugin/resourceduration/ResourceDurationPluginUtils.java
+ create mode 100644 src/main/java/de/hpi/bpt/scylla/plugin/resourceduration/ResourceDurationSCParserPlugin.java
+
+diff --git a/src/main/java/de/hpi/bpt/scylla/plugin/resourceduration/ResourceDurationDistributionConversionPlugin.java b/src/main/java/de/hpi/bpt/scylla/plugin/resourceduration/ResourceDurationDistributionConversionPlugin.java
+new file mode 100644
+index 0000000..4ec7a72
+--- /dev/null
++++ b/src/main/java/de/hpi/bpt/scylla/plugin/resourceduration/ResourceDurationDistributionConversionPlugin.java
+@@ -0,0 +1,84 @@
++package de.hpi.bpt.scylla.plugin.resourceduration;
++
++import java.util.HashMap;
++import java.util.Map;
++import java.util.Map.Entry;
++
++import de.hpi.bpt.scylla.model.configuration.SimulationConfiguration;
++import de.hpi.bpt.scylla.model.configuration.distribution.Distribution;
++import de.hpi.bpt.scylla.model.configuration.distribution.TimeDistributionWrapper;
++import de.hpi.bpt.scylla.model.process.ProcessModel;
++import de.hpi.bpt.scylla.plugin_type.simulation.DistributionConversionPluggable;
++import de.hpi.bpt.scylla.simulation.ProcessSimulationComponents;
++import de.hpi.bpt.scylla.simulation.SimulationModel;
++import de.hpi.bpt.scylla.simulation.utils.SimulationUtils;
++import desmoj.core.dist.NumericalDist;
++
++/**
++ * Turns the parsed per-resource durations into DESMO-J distributions and
++ * registers them where the simulation will look for them.
++ *
++ * The registry lives on ProcessSimulationComponents rather than in this
++ * plugin's own extension map, because TaskBeginEvent consults it directly when
++ * drawing a duration -- the assigned resource is known there, and that is the
++ * only point at which it is.
++ */
++public class ResourceDurationDistributionConversionPlugin extends DistributionConversionPluggable {
++
++    @Override
++    public String getName() {
++        return ResourceDurationPluginUtils.PLUGIN_NAME;
++    }
++
++    @SuppressWarnings("unchecked")
++    @Override
++    public Map<Integer, Object> convertToDesmoJDistributions(ProcessSimulationComponents pSimComponents) {
++
++        SimulationConfiguration simulationConfiguration = pSimComponents.getSimulationConfiguration();
++        Object stored = simulationConfiguration.getExtensionValue(
++                getName(), ResourceDurationPluginUtils.RESOURCE_DURATIONS_KEY);
++        if (stored == null) {
++            return new HashMap<Integer, Object>();
++        }
++
++        Map<Integer, Map<String, TimeDistributionWrapper>> parsed =
++                (Map<Integer, Map<String, TimeDistributionWrapper>>) stored;
++
++        Long randomSeed = simulationConfiguration.getRandomSeed();
++        ProcessModel processModel = pSimComponents.getProcessModel();
++        SimulationModel model = pSimComponents.getModel();
++        boolean showInReport = model.reportIsOn();
++        boolean showInTrace = model.traceIsOn();
++
++        for (Entry<Integer, Map<String, TimeDistributionWrapper>> perNode : parsed.entrySet()) {
++            Integer nodeId = perNode.getKey();
++            Map<String, NumericalDist<?>> converted = new HashMap<String, NumericalDist<?>>();
++
++            for (Entry<String, TimeDistributionWrapper> perResource : perNode.getValue().entrySet()) {
++                String resourceId = perResource.getKey();
++                Distribution distribution = perResource.getValue().getDistribution();
++                String name = processModel.getModelScopeId() + "_" + nodeId + "_" + resourceId;
++
++                try {
++                    NumericalDist<?> desmojDist = SimulationUtils.getDistribution(
++                            distribution, model, name, nodeId, showInReport, showInTrace);
++                    if (randomSeed != null) {
++                        desmojDist.setSeed(randomSeed);
++                    }
++                    converted.put(resourceId, desmojDist);
++                }
++                catch (InstantiationException e) {
++                    e.printStackTrace();
++                }
++            }
++
++            if (!converted.isEmpty()) {
++                pSimComponents.getResourceDistributions().put(nodeId, converted);
++            }
++        }
++
++        // Nothing is returned through the extension mechanism: the durations are
++        // consulted by node and resource at sampling time, not by node alone.
++        return new HashMap<Integer, Object>();
++    }
++}
+diff --git a/src/main/java/de/hpi/bpt/scylla/plugin/resourceduration/ResourceDurationPluginUtils.java b/src/main/java/de/hpi/bpt/scylla/plugin/resourceduration/ResourceDurationPluginUtils.java
+new file mode 100644
+index 0000000..c80b04a
+--- /dev/null
++++ b/src/main/java/de/hpi/bpt/scylla/plugin/resourceduration/ResourceDurationPluginUtils.java
+@@ -0,0 +1,56 @@
++package de.hpi.bpt.scylla.plugin.resourceduration;
++
++/**
++ * Magic strings for the resource-dependent duration plugin.
++ *
++ * Scylla gives an activity a single duration, independent of who performs it.
++ * Process models discovered by Simod in differentiated mode give every resource
++ * its own distribution per activity -- on BPIC 2012 up to 42 per activity, with
++ * the fastest and slowest more than a hundredfold apart. Collapsing them into
++ * one distribution loses that spread.
++ *
++ * This plugin reads per-resource distributions and uses the one belonging to
++ * the resource actually assigned. The node-level {@code <duration>} stays as a
++ * fallback, so a build without the plugin still runs the model.
++ */
++public class ResourceDurationPluginUtils {
++
++    /** Plugin name. */
++    public static final String PLUGIN_NAME = "resourceDuration";
++
++    /** Key under which the parsed per-resource durations are stored. */
++    public static final String RESOURCE_DURATIONS_KEY = "resourceDurations";
++
++    /** Element wrapping the per-resource durations, as a child of a task. */
++    public static final String ELEMENT_NAME = "resourceDurations";
++
++    /** Element holding one resource's distribution. */
++    public static final String ITEM_ELEMENT_NAME = "resourceDuration";
++
++    /** Attribute naming the resource a distribution belongs to. */
++    public static final String RESOURCE_ID_ATTRIBUTE = "resourceId";
++
++    /**
++     * Separator between a pool id and a resource id in an instance name.
++     *
++     * Scylla identifies a running resource by its instance name. When several
++     * real resources share one pool, the converter names the instances
++     * {@code <pool>__<resourceId>} so the original resource can be recovered
++     * here. Instance names without the separator are used as-is.
++     */
++    public static final String INSTANCE_NAME_SEPARATOR = "__";
++
++    /**
++     * Recovers the resource id from an instance name.
++     */
++    public static String resourceIdOf(String instanceName) {
++        if (instanceName == null) {
++            return null;
++        }
++        int index = instanceName.lastIndexOf(INSTANCE_NAME_SEPARATOR);
++        return index < 0 ? instanceName : instanceName.substring(index + INSTANCE_NAME_SEPARATOR.length());
++    }
++
++    private ResourceDurationPluginUtils() {
++    }
++}
+diff --git a/src/main/java/de/hpi/bpt/scylla/plugin/resourceduration/ResourceDurationSCParserPlugin.java b/src/main/java/de/hpi/bpt/scylla/plugin/resourceduration/ResourceDurationSCParserPlugin.java
+new file mode 100644
+index 0000000..c1a1809
+--- /dev/null
++++ b/src/main/java/de/hpi/bpt/scylla/plugin/resourceduration/ResourceDurationSCParserPlugin.java
+@@ -0,0 +1,107 @@
++package de.hpi.bpt.scylla.plugin.resourceduration;
++
++import java.util.HashMap;
++import java.util.Map;
++
++import org.jdom2.Element;
++import org.jdom2.Namespace;
++
++import de.hpi.bpt.scylla.exception.ScyllaValidationException;
++import de.hpi.bpt.scylla.logger.DebugLogger;
++import de.hpi.bpt.scylla.model.configuration.SimulationConfiguration;
++import de.hpi.bpt.scylla.model.configuration.distribution.TimeDistributionWrapper;
++import de.hpi.bpt.scylla.model.process.ProcessModel;
++import de.hpi.bpt.scylla.parser.SimulationConfigurationParser;
++import de.hpi.bpt.scylla.plugin_type.parser.SimulationConfigurationParserPluggable;
++
++/**
++ * Parses {@code <resourceDurations>} out of a task in the simulation
++ * configuration.
++ *
++ * <pre>
++ * &lt;task id="..."&gt;
++ *   &lt;duration timeUnit="SECONDS"&gt;...&lt;/duration&gt;          &lt;!-- fallback --&gt;
++ *   &lt;resourceDurations&gt;
++ *     &lt;resourceDuration resourceId="10125" timeUnit="SECONDS"&gt;
++ *       &lt;exponentialDistribution&gt;&lt;mean&gt;67&lt;/mean&gt;&lt;/exponentialDistribution&gt;
++ *     &lt;/resourceDuration&gt;
++ *   &lt;/resourceDurations&gt;
++ * &lt;/task&gt;
++ * </pre>
++ *
++ * The distribution shape is whatever Scylla already understands, parsed by its
++ * own parser, so no new distribution types are introduced here.
++ */
++public class ResourceDurationSCParserPlugin extends SimulationConfigurationParserPluggable {
++
++    @Override
++    public String getName() {
++        return ResourceDurationPluginUtils.PLUGIN_NAME;
++    }
++
++    @Override
++    public Map<String, Object> parse(SimulationConfiguration simulationInput, Element sim)
++            throws ScyllaValidationException {
++
++        Map<Integer, Map<String, TimeDistributionWrapper>> durations =
++                new HashMap<Integer, Map<String, TimeDistributionWrapper>>();
++        Namespace simNamespace = sim.getNamespace();
++        ProcessModel processModel = simulationInput.getProcessModel();
++
++        for (Element el : sim.getChildren()) {
++            String elementName = el.getName();
++            // Scylla accepts "task" and anything ending in "Task"; mirror that.
++            if (!"task".equals(elementName) && !elementName.endsWith("Task")) {
++                continue;
++            }
++
++            Element wrapper = el.getChild(ResourceDurationPluginUtils.ELEMENT_NAME, simNamespace);
++            if (wrapper == null) {
++                continue;
++            }
++
++            String identifier = el.getAttributeValue("id");
++            if (identifier == null) {
++                DebugLogger.log("Task with resource durations has no identifier, skip.");
++                continue;
++            }
++
++            Integer nodeId = processModel.getIdentifiersToNodeIds().get(identifier);
++            if (nodeId == null) {
++                DebugLogger.log("Task " + identifier + " is not in the process model, skip its resource durations.");
++                continue;
++            }
++
++            Map<String, TimeDistributionWrapper> perResource =
++                    new HashMap<String, TimeDistributionWrapper>();
++
++            for (Element item : wrapper.getChildren(
++                    ResourceDurationPluginUtils.ITEM_ELEMENT_NAME, simNamespace)) {
++
++                String resourceId = item.getAttributeValue(
++                        ResourceDurationPluginUtils.RESOURCE_ID_ATTRIBUTE);
++                if (resourceId == null) {
++                    throw new ScyllaValidationException("A resourceDuration of task " + identifier
++                            + " has no " + ResourceDurationPluginUtils.RESOURCE_ID_ATTRIBUTE + " attribute.");
++                }
++                if (item.getAttributeValue("timeUnit") == null) {
++                    // Scylla's own parser throws a NullPointerException here
++                    // rather than a readable error, so check it first.
++                    throw new ScyllaValidationException("The resourceDuration for " + resourceId
++                            + " of task " + identifier + " has no timeUnit.");
++                }
++
++                perResource.put(resourceId,
++                        SimulationConfigurationParser.getTimeDistributionWrapper(item, simNamespace));
++            }
++
++            if (!perResource.isEmpty()) {
++                durations.put(nodeId, perResource);
++            }
++        }
++
++        Map<String, Object> extensionAttributes = new HashMap<String, Object>();
++        extensionAttributes.put(ResourceDurationPluginUtils.RESOURCE_DURATIONS_KEY, durations);
++        return extensionAttributes;
++    }
++}
+diff --git a/src/main/java/de/hpi/bpt/scylla/simulation/ProcessSimulationComponents.java b/src/main/java/de/hpi/bpt/scylla/simulation/ProcessSimulationComponents.java
+index 93f8038..e0d9a3e 100644
+--- a/src/main/java/de/hpi/bpt/scylla/simulation/ProcessSimulationComponents.java
++++ b/src/main/java/de/hpi/bpt/scylla/simulation/ProcessSimulationComponents.java
+@@ -1,5 +1,6 @@
+ package de.hpi.bpt.scylla.simulation;
+ 
++import java.util.Collection;
+ import java.util.HashMap;
+ import java.util.Map;
+ import java.util.concurrent.TimeUnit;
+@@ -206,6 +207,60 @@ public class ProcessSimulationComponents {
+         return children;
+     }
+ 
++    /**
++     * Registry of distributions that depend on which resource performs the task.
++     *
++     * Empty unless a plugin fills it. Scylla's own model gives an activity a
++     * single duration; process models discovered from event logs frequently do
++     * not, so a plugin can register per-resource alternatives here and they are
++     * consulted when the performing resource is known.
++     *
++     * Keyed by node id, then by resource id.
++     */
++    private final Map<Integer, Map<String, NumericalDist<?>>> resourceDistributions =
++            new HashMap<Integer, Map<String, NumericalDist<?>>>();
++
++    public Map<Integer, Map<String, NumericalDist<?>>> getResourceDistributions() {
++        return resourceDistributions;
++    }
++
++    /**
++     * Draw a duration for a node, preferring a distribution registered for one
++     * of the resources actually performing it.
++     *
++     * Falls back to {@link #getDistributionSample(Integer)} when no plugin has
++     * registered anything for this node, so default behaviour is unchanged.
++     *
++     * @param nodeId      the node
++     * @param resourceIds ids of the assigned resources, may be null or empty
++     */
++    public double getDistributionSample(Integer nodeId, Collection<String> resourceIds) {
++        Map<String, NumericalDist<?>> perResource = resourceDistributions.get(nodeId);
++        if (perResource == null || perResource.isEmpty() || resourceIds == null) {
++            return getDistributionSample(nodeId);
++        }
++
++        for (String resourceId : resourceIds) {
++            NumericalDist<?> distribution = perResource.get(resourceId);
++            if (distribution == null && resourceId != null) {
++                // Scylla identifies a running resource by its instance name. A
++                // plugin that pools several resources into one dynamicResource
++                // can encode the original id after a separator, so try that too
++                // before falling back.
++                int index = resourceId.lastIndexOf("__");
++                if (index >= 0) {
++                    distribution = perResource.get(resourceId.substring(index + 2));
++                }
++            }
++            if (distribution != null) {
++                double value = distribution.sample().doubleValue();
++                return value < 0 ? 0 : value;
++            }
++        }
++
++        return getDistributionSample(nodeId);
++    }
++
+     public double getDistributionSample(Integer nodeId) {
+         NumericalDist<?> distribution = distributions.get(nodeId);
+         NumericalDist<?> setUpDistribution = setUpDistributions.get(nodeId);
+diff --git a/src/main/java/de/hpi/bpt/scylla/simulation/event/TaskBeginEvent.java b/src/main/java/de/hpi/bpt/scylla/simulation/event/TaskBeginEvent.java
+index 4225ce3..ca75218 100644
+--- a/src/main/java/de/hpi/bpt/scylla/simulation/event/TaskBeginEvent.java
++++ b/src/main/java/de/hpi/bpt/scylla/simulation/event/TaskBeginEvent.java
+@@ -1,136 +1,147 @@
+-package de.hpi.bpt.scylla.simulation.event;
+-
+-import java.util.HashSet;
+-import java.util.Set;
+-import java.util.concurrent.TimeUnit;
+-
+-import co.paralleluniverse.fibers.SuspendExecution;
+-import de.hpi.bpt.scylla.exception.ScyllaRuntimeException;
+-import de.hpi.bpt.scylla.logger.ProcessNodeInfo;
+-import de.hpi.bpt.scylla.logger.ProcessNodeTransitionType;
+-import de.hpi.bpt.scylla.model.process.ProcessModel;
+-import de.hpi.bpt.scylla.model.process.node.TaskType;
+-import de.hpi.bpt.scylla.plugin_type.simulation.event.TaskBeginEventPluggable;
+-import de.hpi.bpt.scylla.simulation.ProcessInstance;
+-import de.hpi.bpt.scylla.simulation.ProcessSimulationComponents;
+-import de.hpi.bpt.scylla.simulation.ResourceObject;
+-import de.hpi.bpt.scylla.simulation.ResourceObjectTuple;
+-import de.hpi.bpt.scylla.simulation.SimulationModel;
+-import de.hpi.bpt.scylla.simulation.utils.DateTimeUtils;
+-import de.hpi.bpt.scylla.simulation.utils.SimulationUtils;
+-import desmoj.core.simulator.Model;
+-import desmoj.core.simulator.TimeInstant;
+-import desmoj.core.simulator.TimeSpan;
+-
+-/**
+- * DesmoJ event representing begin transition of a BPMN task.
+- * 
+- * @author Tsun Yin Wong
+- *
+- */
+-public class TaskBeginEvent extends TaskEvent {
+-
+-    public TaskBeginEvent(Model owner, String source, TimeInstant simulationTimeOfSource,
+-            ProcessSimulationComponents desmojObjects, ProcessInstance processInstance, int nodeId) {
+-        super(owner, source, simulationTimeOfSource, desmojObjects, processInstance, nodeId);
+-    }
+-
+-    @Override
+-    public void eventRoutine(ProcessInstance processInstance) throws SuspendExecution {
+-        super.eventRoutine(processInstance);
+-
+-        SimulationModel model = (SimulationModel) getModel();
+-        TimeInstant currentSimulationTime = model.presentTime();
+-        ProcessModel processModel = processInstance.getProcessModel();
+-
+-        ProcessModel subProcess = processModel.getSubProcesses().get(nodeId);
+-        TaskType type = processModel.getTasks().get(nodeId);
+-
+-        String message = null;
+-        if (subProcess != null) {
+-            message = "Begin Subprocess: " + displayName;
+-        }
+-        else if (type == TaskType.DEFAULT) {
+-            message = "Begin Default Task: " + displayName;
+-        }
+-        else if (type == TaskType.SERVICE) {
+-            message = "Begin Service Task: " + displayName;
+-        }
+-        else if (type == TaskType.SEND) {
+-            message = "Begin Send Task: " + displayName;
+-        }
+-        else if (type == TaskType.RECEIVE) {
+-            message = "Begin Receive Task: " + displayName;
+-        }
+-        else if (type == TaskType.USER) {
+-            message = "Begin User Task: " + displayName;
+-        }
+-        else if (type == TaskType.MANUAL) {
+-            message = "Begin Manual Task: " + displayName;
+-        }
+-        else if (type == TaskType.BUSINESS_RULE) {
+-            message = "Begin Business Rule: " + displayName;
+-        }
+-        else if (type == TaskType.SCRIPT) {
+-            message = "Begin Script Task: " + displayName;
+-        }
+-        else {
+-            SimulationUtils.sendElementNotSupportedTraceNote(model, processModel, displayName, nodeId);
+-            SimulationUtils.abort(model, processInstance, nodeId, traceIsOn());
+-            return;
+-        }
+-
+-        sendTraceNote(message);
+-
+-        try {
+-
+-            double duration = pSimComponents.getDistributionSample(nodeId);
+-            TimeUnit unit = pSimComponents.getDistributionTimeUnit(nodeId);
+-
+-            ScyllaEvent event = new TaskTerminateEvent(model, source, currentSimulationTime, pSimComponents,
+-                    processInstance, nodeId);
+-            TimeSpan timeSpan = new TimeSpan(duration, unit);
+-
+-            ResourceObjectTuple tuple = processInstance.getAssignedResources().get(source);
+-            TimeInstant nextEventTime = DateTimeUtils.getTaskTerminationTime(timeSpan, currentSimulationTime, tuple,
+-                    event);
+-
+-            timeSpan = new TimeSpan(nextEventTime.getTimeAsDouble() - currentSimulationTime.getTimeAsDouble());
+-
+-            int index = getNewEventIndex();
+-            nextEventMap.put(index, event);
+-            timeSpanToNextEventMap.put(index, timeSpan);
+-
+-            TaskBeginEventPluggable.runPlugins(this, processInstance);
+-
+-            scheduleNextEvents();
+-        }
+-        catch (ScyllaRuntimeException e) {
+-            System.err.println(e.getMessage());
+-            e.printStackTrace();
+-            SimulationUtils.abort(model, processInstance, nodeId, traceIsOn());
+-            return;
+-        }
+-    }
+-
+-    @Override
+-    protected void addToLog(ProcessInstance processInstance) {
+-        long timestamp = Math.round(getModel().presentTime().getTimeRounded(DateTimeUtils.getReferenceTimeUnit()));
+-        String taskName = displayName;
+-        Set<String> resources = new HashSet<String>();
+-        Set<ResourceObject> resourceObjects = processInstance.getAssignedResources().get(source).getResourceObjects();
+-        for (ResourceObject res : resourceObjects) {
+-            String resourceName = res.getResourceType() + "_" + res.getId();
+-            resources.add(resourceName);
+-        }
+-        ProcessNodeTransitionType transition = ProcessNodeTransitionType.BEGIN;
+-
+-        SimulationModel model = (SimulationModel) getModel();
+-        ProcessModel processModel = processInstance.getProcessModel();
+-        String processScopeNodeId = processModel.getRootProcessScopeNodeId(nodeId);
+-
+-        ProcessNodeInfo info = new ProcessNodeInfo(nodeId, processScopeNodeId, source, timestamp, taskName, resources,
+-                transition);
+-        model.addNodeInfo(processModel, processInstance, info);
+-    }
+-}
++package de.hpi.bpt.scylla.simulation.event;
++
++import java.util.LinkedHashSet;
++import java.util.HashSet;
++import java.util.Set;
++import java.util.concurrent.TimeUnit;
++
++import co.paralleluniverse.fibers.SuspendExecution;
++import de.hpi.bpt.scylla.exception.ScyllaRuntimeException;
++import de.hpi.bpt.scylla.logger.ProcessNodeInfo;
++import de.hpi.bpt.scylla.logger.ProcessNodeTransitionType;
++import de.hpi.bpt.scylla.model.process.ProcessModel;
++import de.hpi.bpt.scylla.model.process.node.TaskType;
++import de.hpi.bpt.scylla.plugin_type.simulation.event.TaskBeginEventPluggable;
++import de.hpi.bpt.scylla.simulation.ProcessInstance;
++import de.hpi.bpt.scylla.simulation.ProcessSimulationComponents;
++import de.hpi.bpt.scylla.simulation.ResourceObject;
++import de.hpi.bpt.scylla.simulation.ResourceObjectTuple;
++import de.hpi.bpt.scylla.simulation.SimulationModel;
++import de.hpi.bpt.scylla.simulation.utils.DateTimeUtils;
++import de.hpi.bpt.scylla.simulation.utils.SimulationUtils;
++import desmoj.core.simulator.Model;
++import desmoj.core.simulator.TimeInstant;
++import desmoj.core.simulator.TimeSpan;
++
++/**
++ * DesmoJ event representing begin transition of a BPMN task.
++ * 
++ * @author Tsun Yin Wong
++ *
++ */
++public class TaskBeginEvent extends TaskEvent {
++
++    public TaskBeginEvent(Model owner, String source, TimeInstant simulationTimeOfSource,
++            ProcessSimulationComponents desmojObjects, ProcessInstance processInstance, int nodeId) {
++        super(owner, source, simulationTimeOfSource, desmojObjects, processInstance, nodeId);
++    }
++
++    @Override
++    public void eventRoutine(ProcessInstance processInstance) throws SuspendExecution {
++        super.eventRoutine(processInstance);
++
++        SimulationModel model = (SimulationModel) getModel();
++        TimeInstant currentSimulationTime = model.presentTime();
++        ProcessModel processModel = processInstance.getProcessModel();
++
++        ProcessModel subProcess = processModel.getSubProcesses().get(nodeId);
++        TaskType type = processModel.getTasks().get(nodeId);
++
++        String message = null;
++        if (subProcess != null) {
++            message = "Begin Subprocess: " + displayName;
++        }
++        else if (type == TaskType.DEFAULT) {
++            message = "Begin Default Task: " + displayName;
++        }
++        else if (type == TaskType.SERVICE) {
++            message = "Begin Service Task: " + displayName;
++        }
++        else if (type == TaskType.SEND) {
++            message = "Begin Send Task: " + displayName;
++        }
++        else if (type == TaskType.RECEIVE) {
++            message = "Begin Receive Task: " + displayName;
++        }
++        else if (type == TaskType.USER) {
++            message = "Begin User Task: " + displayName;
++        }
++        else if (type == TaskType.MANUAL) {
++            message = "Begin Manual Task: " + displayName;
++        }
++        else if (type == TaskType.BUSINESS_RULE) {
++            message = "Begin Business Rule: " + displayName;
++        }
++        else if (type == TaskType.SCRIPT) {
++            message = "Begin Script Task: " + displayName;
++        }
++        else {
++            SimulationUtils.sendElementNotSupportedTraceNote(model, processModel, displayName, nodeId);
++            SimulationUtils.abort(model, processInstance, nodeId, traceIsOn());
++            return;
++        }
++
++        sendTraceNote(message);
++
++        try {
++
++            // The resources performing this task are already assigned by now
++            // (TaskEnableEvent, or SimulationModel when the task was queued), so
++            // the duration can depend on them. Falls back to the node-level
++            // distribution when no plugin has registered per-resource ones.
++            ResourceObjectTuple tuple = processInstance.getAssignedResources().get(source);
++            Set<String> resourceIds = new LinkedHashSet<String>();
++            if (tuple != null && tuple.getResourceObjects() != null) {
++                for (ResourceObject resourceObject : tuple.getResourceObjects()) {
++                    resourceIds.add(resourceObject.getId());
++                }
++            }
++
++            double duration = pSimComponents.getDistributionSample(nodeId, resourceIds);
++            TimeUnit unit = pSimComponents.getDistributionTimeUnit(nodeId);
++
++            ScyllaEvent event = new TaskTerminateEvent(model, source, currentSimulationTime, pSimComponents,
++                    processInstance, nodeId);
++            TimeSpan timeSpan = new TimeSpan(duration, unit);
++            TimeInstant nextEventTime = DateTimeUtils.getTaskTerminationTime(timeSpan, currentSimulationTime, tuple,
++                    event);
++
++            timeSpan = new TimeSpan(nextEventTime.getTimeAsDouble() - currentSimulationTime.getTimeAsDouble());
++
++            int index = getNewEventIndex();
++            nextEventMap.put(index, event);
++            timeSpanToNextEventMap.put(index, timeSpan);
++
++            TaskBeginEventPluggable.runPlugins(this, processInstance);
++
++            scheduleNextEvents();
++        }
++        catch (ScyllaRuntimeException e) {
++            System.err.println(e.getMessage());
++            e.printStackTrace();
++            SimulationUtils.abort(model, processInstance, nodeId, traceIsOn());
++            return;
++        }
++    }
++
++    @Override
++    protected void addToLog(ProcessInstance processInstance) {
++        long timestamp = Math.round(getModel().presentTime().getTimeRounded(DateTimeUtils.getReferenceTimeUnit()));
++        String taskName = displayName;
++        Set<String> resources = new HashSet<String>();
++        Set<ResourceObject> resourceObjects = processInstance.getAssignedResources().get(source).getResourceObjects();
++        for (ResourceObject res : resourceObjects) {
++            String resourceName = res.getResourceType() + "_" + res.getId();
++            resources.add(resourceName);
++        }
++        ProcessNodeTransitionType transition = ProcessNodeTransitionType.BEGIN;
++
++        SimulationModel model = (SimulationModel) getModel();
++        ProcessModel processModel = processInstance.getProcessModel();
++        String processScopeNodeId = processModel.getRootProcessScopeNodeId(nodeId);
++
++        ProcessNodeInfo info = new ProcessNodeInfo(nodeId, processScopeNodeId, source, timestamp, taskName, resources,
++                transition);
++        model.addNodeInfo(processModel, processInstance, info);
++    }
++}
+diff --git a/src/main/resources/META-INF/plugins/plugins_list b/src/main/resources/META-INF/plugins/plugins_list
+index 97ded43..d38143a 100644
+--- a/src/main/resources/META-INF/plugins/plugins_list
++++ b/src/main/resources/META-INF/plugins/plugins_list
+@@ -12,3 +12,4 @@ de.hpi.bpt.scylla.plugin.xeslogger
+ de.hpi.bpt.scylla.plugin.eventArrivalRate
+ de.hpi.bpt.scylla.plugin.gateway_eventbased
+ de.hpi.bpt.scylla.plugin.arrivalcalendar
++de.hpi.bpt.scylla.plugin.resourceduration
+-- 
+2.51.2.windows.1
+

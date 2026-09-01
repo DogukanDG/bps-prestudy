@@ -1,0 +1,367 @@
+From 72d410758cb752dacce216a3a3aeaa49c15d073a Mon Sep 17 00:00:00 2001
+From: DogukanDG <dagtekindogukan1@gmail.com>
+Date: Tue, 1 Sep 2026 16:22:22 +0200
+Subject: [PATCH 1/2] Add an arrival calendar plugin
+
+Scylla schedules case arrivals from an inter-arrival distribution alone, with no
+notion of when arrivals are possible. Process models discovered by Simod also
+carry an arrival calendar -- on BPIC 2012 it covers 75 hours a week, about 45% --
+and ignoring it releases the same number of cases across all 168 hours. Resource
+calendars still apply, so those cases arrive when nobody is working and queue
+until the next shift.
+
+The plugin defers a case that would arrive outside the calendar to the next open
+window, reading a new <arrivalCalendar> element inside <startEvent> whose
+<timetableItem> children have the same shape as the global configuration's
+timetables. Without the element the plugin does nothing, so existing models are
+unaffected.
+
+Deferring rather than dropping: the simulated case count still matches
+processInstances, which is what keeps runs comparable. The cost is that arrivals
+cluster at window openings, so the realised inter-arrival distribution is not
+exactly the configured one.
+
+Note on the delay computation. It walks forward over the windows rather than
+calling DateTimeUtils.getTimeTableIndexWithinOrNext, which ranks candidates via
+getNextOrSameZonedDateTime and can therefore select a window whose start already
+passed earlier the same day. That yields a negative duration and lets arrivals
+through outside the calendar -- observed as arrivals at 21:00 and 22:00 on
+Mondays against a calendar closing at 20:00. The same weakness may affect other
+callers of that helper, which is worth a separate look.
+
+Measured against Prosimos on BPIC 2012 at 500 cases: mean cycle time was 2.24x
+Prosimos without the calendar and 0.89x with it.
+---
+ .../ArrivalCalendarPluginUtils.java           |  32 +++++
+ .../ArrivalCalendarSCParserPlugin.java        | 130 ++++++++++++++++++
+ .../ArrivalCalendarSchedulingPlugin.java      | 129 +++++++++++++++++
+ .../resources/META-INF/plugins/plugins_list   |   3 +-
+ 4 files changed, 293 insertions(+), 1 deletion(-)
+ create mode 100644 src/main/java/de/hpi/bpt/scylla/plugin/arrivalcalendar/ArrivalCalendarPluginUtils.java
+ create mode 100644 src/main/java/de/hpi/bpt/scylla/plugin/arrivalcalendar/ArrivalCalendarSCParserPlugin.java
+ create mode 100644 src/main/java/de/hpi/bpt/scylla/plugin/arrivalcalendar/ArrivalCalendarSchedulingPlugin.java
+
+diff --git a/src/main/java/de/hpi/bpt/scylla/plugin/arrivalcalendar/ArrivalCalendarPluginUtils.java b/src/main/java/de/hpi/bpt/scylla/plugin/arrivalcalendar/ArrivalCalendarPluginUtils.java
+new file mode 100644
+index 0000000..5f88dfb
+--- /dev/null
++++ b/src/main/java/de/hpi/bpt/scylla/plugin/arrivalcalendar/ArrivalCalendarPluginUtils.java
+@@ -0,0 +1,32 @@
++package de.hpi.bpt.scylla.plugin.arrivalcalendar;
++
++/**
++ * Magic strings for the arrival calendar plugin.
++ *
++ * Scylla schedules case arrivals from an inter-arrival distribution alone, with
++ * no notion of when arrivals are possible. Process models discovered by Simod
++ * carry an arrival calendar as well -- on BPIC 2012 it covers 75 hours a week,
++ * about 45% of it -- and ignoring it releases the same number of cases across
++ * the whole week instead. Since resource calendars still apply, those cases
++ * arrive when nobody is working and queue until the next shift, which inflates
++ * cycle time substantially.
++ *
++ * This plugin restricts arrivals to the hours the calendar covers.
++ */
++public class ArrivalCalendarPluginUtils {
++
++    /** Plugin name. */
++    public static final String PLUGIN_NAME = "arrivalCalendar";
++
++    /** Key under which the parsed calendar is stored as a simulation extension. */
++    public static final String ARRIVAL_CALENDAR_KEY = "arrivalCalendar";
++
++    /** Element holding the calendar, as a child of a startEvent. */
++    public static final String ELEMENT_NAME = "arrivalCalendar";
++
++    /** Element holding one open window, mirroring the global config's timetables. */
++    public static final String ITEM_ELEMENT_NAME = "timetableItem";
++
++    private ArrivalCalendarPluginUtils() {
++    }
++}
+diff --git a/src/main/java/de/hpi/bpt/scylla/plugin/arrivalcalendar/ArrivalCalendarSCParserPlugin.java b/src/main/java/de/hpi/bpt/scylla/plugin/arrivalcalendar/ArrivalCalendarSCParserPlugin.java
+new file mode 100644
+index 0000000..26c403f
+--- /dev/null
++++ b/src/main/java/de/hpi/bpt/scylla/plugin/arrivalcalendar/ArrivalCalendarSCParserPlugin.java
+@@ -0,0 +1,130 @@
++package de.hpi.bpt.scylla.plugin.arrivalcalendar;
++
++import java.time.DayOfWeek;
++import java.time.LocalTime;
++import java.util.ArrayList;
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
++
++import org.jdom2.Element;
++import org.jdom2.Namespace;
++
++import de.hpi.bpt.scylla.exception.ScyllaValidationException;
++import de.hpi.bpt.scylla.logger.DebugLogger;
++import de.hpi.bpt.scylla.model.configuration.SimulationConfiguration;
++import de.hpi.bpt.scylla.model.global.resource.TimetableItem;
++import de.hpi.bpt.scylla.model.process.ProcessModel;
++import de.hpi.bpt.scylla.plugin_type.parser.SimulationConfigurationParserPluggable;
++import de.hpi.bpt.scylla.simulation.utils.DateTimeUtils;
++
++/**
++ * Parses {@code <arrivalCalendar>} out of a start event in the simulation
++ * configuration.
++ *
++ * <pre>
++ * &lt;startEvent id="..."&gt;
++ *   &lt;arrivalRate timeUnit="SECONDS"&gt;...&lt;/arrivalRate&gt;
++ *   &lt;arrivalCalendar&gt;
++ *     &lt;timetableItem from="MONDAY" to="MONDAY"
++ *                    beginTime="05:00:00" endTime="08:00:00"/&gt;
++ *   &lt;/arrivalCalendar&gt;
++ * &lt;/startEvent&gt;
++ * </pre>
++ *
++ * The item shape is deliberately the same as the global configuration's
++ * timetables, so the semantics are already familiar and the wrap-around
++ * handling below matches what resource calendars do.
++ */
++public class ArrivalCalendarSCParserPlugin extends SimulationConfigurationParserPluggable {
++
++    @Override
++    public String getName() {
++        return ArrivalCalendarPluginUtils.PLUGIN_NAME;
++    }
++
++    @Override
++    public Map<String, Object> parse(SimulationConfiguration simulationInput, Element sim)
++            throws ScyllaValidationException {
++
++        Map<Integer, List<TimetableItem>> calendars = new HashMap<Integer, List<TimetableItem>>();
++        Namespace simNamespace = sim.getNamespace();
++        ProcessModel processModel = simulationInput.getProcessModel();
++
++        for (Element el : sim.getChildren()) {
++            if (!"startEvent".equals(el.getName())) {
++                continue;
++            }
++
++            Element calendarElement = el.getChild(ArrivalCalendarPluginUtils.ELEMENT_NAME, simNamespace);
++            if (calendarElement == null) {
++                continue;
++            }
++
++            String identifier = el.getAttributeValue("id");
++            if (identifier == null) {
++                DebugLogger.log("Start event with an arrival calendar has no identifier, skip.");
++                continue;
++            }
++
++            Integer nodeId = processModel.getIdentifiersToNodeIds().get(identifier);
++            if (nodeId == null) {
++                DebugLogger.log("Start event " + identifier + " is not in the process model, skip its calendar.");
++                continue;
++            }
++
++            List<TimetableItem> items = parseItems(calendarElement, simNamespace, identifier);
++            if (items.isEmpty()) {
++                throw new ScyllaValidationException(
++                        "Arrival calendar of start event " + identifier + " has no usable time windows.");
++            }
++            calendars.put(nodeId, items);
++        }
++
++        Map<String, Object> extensionAttributes = new HashMap<String, Object>();
++        extensionAttributes.put(ArrivalCalendarPluginUtils.ARRIVAL_CALENDAR_KEY, calendars);
++        return extensionAttributes;
++    }
++
++    /**
++     * Reads the windows, splitting any that wrap past Sunday.
++     *
++     * Mirrors GlobalConfigurationParser's handling of timetables: a window from
++     * FRIDAY to MONDAY becomes two, so that every item runs forwards through the
++     * week. Zero-length windows are dropped rather than rejected, matching the
++     * same code.
++     */
++    private List<TimetableItem> parseItems(Element calendarElement, Namespace simNamespace, String identifier)
++            throws ScyllaValidationException {
++
++        List<TimetableItem> items = new ArrayList<TimetableItem>();
++
++        for (Element itemElement : calendarElement.getChildren(
++                ArrivalCalendarPluginUtils.ITEM_ELEMENT_NAME, simNamespace)) {
++            try {
++                DayOfWeek weekdayFrom = DayOfWeek.valueOf(itemElement.getAttributeValue("from"));
++                DayOfWeek weekdayTo = DayOfWeek.valueOf(itemElement.getAttributeValue("to"));
++                LocalTime beginTime = LocalTime.parse(itemElement.getAttributeValue("beginTime"));
++                LocalTime endTime = LocalTime.parse(itemElement.getAttributeValue("endTime"));
++
++                if (DateTimeUtils.compareWeekdayTime(weekdayFrom, beginTime, weekdayTo, endTime) == 0) {
++                    continue; // zero-length window
++                }
++
++                if (weekdayFrom.compareTo(weekdayTo) > 0) { // e.g. FRIDAY to MONDAY
++                    items.add(new TimetableItem(weekdayFrom, DayOfWeek.SUNDAY, beginTime, LocalTime.MAX));
++                    items.add(new TimetableItem(DayOfWeek.MONDAY, weekdayTo, LocalTime.MIN, endTime));
++                }
++                else {
++                    items.add(new TimetableItem(weekdayFrom, weekdayTo, beginTime, endTime));
++                }
++            }
++            catch (NullPointerException | IllegalArgumentException e) {
++                throw new ScyllaValidationException("Arrival calendar of start event " + identifier
++                        + " has a timetableItem with a missing or malformed from/to/beginTime/endTime.");
++            }
++        }
++
++        return items;
++    }
++}
+diff --git a/src/main/java/de/hpi/bpt/scylla/plugin/arrivalcalendar/ArrivalCalendarSchedulingPlugin.java b/src/main/java/de/hpi/bpt/scylla/plugin/arrivalcalendar/ArrivalCalendarSchedulingPlugin.java
+new file mode 100644
+index 0000000..4ec60e7
+--- /dev/null
++++ b/src/main/java/de/hpi/bpt/scylla/plugin/arrivalcalendar/ArrivalCalendarSchedulingPlugin.java
+@@ -0,0 +1,129 @@
++package de.hpi.bpt.scylla.plugin.arrivalcalendar;
++
++import java.time.ZonedDateTime;
++import java.time.temporal.TemporalAdjusters;
++import java.util.List;
++import java.util.Map;
++
++import de.hpi.bpt.scylla.exception.ScyllaRuntimeException;
++import de.hpi.bpt.scylla.model.global.resource.TimetableItem;
++import de.hpi.bpt.scylla.model.process.ProcessModel;
++import de.hpi.bpt.scylla.plugin_type.simulation.event.ProcessInstanceGenerationEventPluggable;
++import de.hpi.bpt.scylla.simulation.ProcessInstance;
++import de.hpi.bpt.scylla.simulation.ProcessSimulationComponents;
++import de.hpi.bpt.scylla.simulation.SimulationModel;
++import de.hpi.bpt.scylla.simulation.event.ProcessInstanceGenerationEvent;
++import de.hpi.bpt.scylla.simulation.utils.DateTimeUtils;
++import desmoj.core.simulator.TimeInstant;
++import desmoj.core.simulator.TimeSpan;
++
++/**
++ * Defers a case that would arrive outside the arrival calendar to the next open
++ * window.
++ *
++ * <b>Deferring, not dropping.</b> A case whose draw lands on a Sunday night is
++ * pushed to Monday morning rather than discarded. That keeps the number of
++ * simulated cases equal to {@code processInstances}, which is what makes runs
++ * comparable across engines and across configurations -- Prosimos compresses
++ * the same case count into the open hours, so this is the closer match.
++ *
++ * The cost is that arrivals cluster slightly at the start of each window, so
++ * the realised inter-arrival distribution is not exactly the configured one.
++ * That is inherent to the choice and belongs in any write-up of the results.
++ *
++ * The calendar arithmetic is not new: DateTimeUtils already locates the current
++ * or next window for resource calendars, and this reuses it.
++ */
++public class ArrivalCalendarSchedulingPlugin extends ProcessInstanceGenerationEventPluggable {
++
++    @Override
++    public String getName() {
++        return ArrivalCalendarPluginUtils.PLUGIN_NAME;
++    }
++
++    @SuppressWarnings("unchecked")
++    @Override
++    public void eventRoutine(ProcessInstanceGenerationEvent event, ProcessInstance processInstance)
++            throws ScyllaRuntimeException {
++
++        SimulationModel model = (SimulationModel) event.getModel();
++        ProcessSimulationComponents components = model.getDesmojObjectsMap().get(event.getProcessId());
++        if (components == null) {
++            return;
++        }
++
++        Object stored = components.getSimulationConfiguration()
++                .getExtensionValue(getName(), ArrivalCalendarPluginUtils.ARRIVAL_CALENDAR_KEY);
++        if (stored == null) {
++            return; // no calendar configured: leave Scylla's behaviour untouched
++        }
++
++        Map<Integer, List<TimetableItem>> calendars = (Map<Integer, List<TimetableItem>>) stored;
++        if (calendars.isEmpty()) {
++            return;
++        }
++
++        Integer startNodeId;
++        try {
++            ProcessModel processModel = components.getProcessModel();
++            startNodeId = processModel.getStartNode();
++        }
++        catch (Exception e) {
++            return; // no single start node; nothing to restrict
++        }
++
++        List<TimetableItem> calendar = calendars.get(startNodeId);
++        if (calendar == null || calendar.isEmpty()) {
++            return;
++        }
++
++        // The arrival is scheduled at present time plus this offset, so the
++        // instant to test is the two combined.
++        TimeSpan offset = event.getTimeSpanToStartEvent();
++        double offsetTime = offset == null ? 0d : offset.getTimeAsDouble();
++        TimeInstant arrival = new TimeInstant(model.presentTime().getTimeAsDouble() + offsetTime);
++
++        double delay = delayIntoNextWindow(arrival, calendar);
++        if (delay > 0d) {
++            event.setTimeSpanToStartEvent(new TimeSpan(offsetTime + delay));
++        }
++    }
++
++    /**
++     * How long the given instant must wait before the calendar is open, in the
++     * simulation's reference time unit. Zero when it is already inside a window.
++     *
++     * The delay is computed here rather than through
++     * DateTimeUtils.getTimeTableIndexWithinOrNext, which ranks windows by
++     * getNextOrSameZonedDateTime and so can pick one whose start already passed
++     * earlier the same day -- that yields a negative duration and lets arrivals
++     * through outside the calendar. This walks forward instead, so every
++     * candidate is strictly in the future.
++     */
++    static double delayIntoNextWindow(TimeInstant arrival, List<TimetableItem> calendar) {
++        ZonedDateTime dateTime = DateTimeUtils.getDateTime(arrival);
++
++        for (TimetableItem item : calendar) {
++            if (DateTimeUtils.isWithin(dateTime, item)) {
++                return 0d;
++            }
++        }
++
++        double best = Double.MAX_VALUE;
++        for (TimetableItem item : calendar) {
++            ZonedDateTime opening = dateTime
++                    .with(TemporalAdjusters.nextOrSame(item.getWeekdayFrom()))
++                    .with(item.getBeginTime());
++            if (!opening.isAfter(dateTime)) {
++                // Already past today: the next occurrence is a week later.
++                opening = opening.plusWeeks(1);
++            }
++            double delay = DateTimeUtils.getReferenceChronoUnit().between(dateTime, opening);
++            if (delay > 0d && delay < best) {
++                best = delay;
++            }
++        }
++
++        return best == Double.MAX_VALUE ? 0d : best;
++    }
++}
+diff --git a/src/main/resources/META-INF/plugins/plugins_list b/src/main/resources/META-INF/plugins/plugins_list
+index 74da5cf..97ded43 100644
+--- a/src/main/resources/META-INF/plugins/plugins_list
++++ b/src/main/resources/META-INF/plugins/plugins_list
+@@ -10,4 +10,5 @@ de.hpi.bpt.scylla.plugin.statslogger_nojar
+ de.hpi.bpt.scylla.plugin.batch
+ de.hpi.bpt.scylla.plugin.xeslogger
+ de.hpi.bpt.scylla.plugin.eventArrivalRate
+-de.hpi.bpt.scylla.plugin.gateway_eventbased
+\ No newline at end of file
++de.hpi.bpt.scylla.plugin.gateway_eventbased
++de.hpi.bpt.scylla.plugin.arrivalcalendar
+-- 
+2.51.2.windows.1
+
