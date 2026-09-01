@@ -117,6 +117,7 @@ def build_sim_config(
     buckets: int = D.DEFAULT_BUCKETS,
     n_draws: int = D.DEFAULT_DRAWS,
     weighted: bool = False,
+    arrival_calendar: bool = True,
 ) -> ET.Element:
     """Build the definitions/simulationConfiguration tree.
 
@@ -147,6 +148,7 @@ def build_sim_config(
     _append_start_event(
         sim, bpmn["start_events"][0], model["arrival_time_distribution"],
         rng, buckets, n_draws,
+        arrival_calendar=model.get("arrival_time_calendar") if arrival_calendar else None,
     )
 
     return root
@@ -186,10 +188,26 @@ def _append_gateway(parent, gateway, gateway_types) -> ET.Element | None:
     return el
 
 
-def _append_start_event(parent, start_id, arrival, rng, buckets, n_draws) -> ET.Element:
+def _append_start_event(parent, start_id, arrival, rng, buckets, n_draws,
+                       arrival_calendar=None) -> ET.Element:
     el = ET.SubElement(parent, _q("startEvent"), id=start_id)
     rate = ET.SubElement(el, _q("arrivalRate"), timeUnit=D.TIME_UNIT)
     D.append_distribution(rate, arrival, rng, buckets, n_draws)
+
+    # Read by our arrivalCalendar plugin, which defers a case that would arrive
+    # outside these windows to the next open one. Stock Scylla ignores the
+    # element and releases cases across the whole week, which is the behaviour
+    # this exists to correct -- so a run without the plugin still works, just
+    # with the original discrepancy.
+    if arrival_calendar:
+        cal = ET.SubElement(el, _q("arrivalCalendar"))
+        for period in arrival_calendar:
+            ET.SubElement(cal, _q("timetableItem"), {
+                "from": period["from"],
+                "to": period["to"],
+                "beginTime": period["beginTime"],
+                "endTime": period["endTime"],
+            })
     return el
 
 
