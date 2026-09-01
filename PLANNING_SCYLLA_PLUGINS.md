@@ -185,22 +185,115 @@ rather than the code.
 
 ---
 
+## Plugin 3 — resource assignment (proposed)
+
+Not in Samira's original two. It came out of measuring what was left after the
+first two landed, and it is the cheapest of the three to build.
+
+### Why
+
+With both plugins in place, Scylla's mean cycle time on BPIC 2012 at 500 cases
+is 3397 s against Prosimos's 6999 s -- a ratio of 0.49. Two measurements
+attribute that:
+
+**Eligibility, measured on Prosimos alone** (real eligibility vs. every resource
+eligible for everything, so the engine is held constant):
+
+| Prosimos | cycle time |
+|---|---|
+| real eligibility | 6684 |
+| everyone eligible | 8112 |
+
+Losing eligibility *raises* cycle time by 21%. Restoring it in Scylla would
+therefore move 3397 up towards Prosimos, roughly to 4100 -- the right direction,
+but not enough on its own.
+
+**Selection policy**, isolated by giving every resource on an activity the same
+duration, so the two engines' policies cannot differ in effect:
+
+| | Scylla / Prosimos |
+|---|---|
+| all resources equally fast | 0.87 |
+| real per-resource durations | 0.49 |
+
+The drop from 0.87 to 0.49 is entirely how each engine chooses among available
+resources. Prosimos takes the one that becomes free earliest, keeping busy
+resources in the queue. Scylla takes one that is free *now*, so a fast resource
+returns to the pool repeatedly and takes disproportionately more work.
+
+So eligibility is the smaller term and selection policy is the larger one.
+
+### What the source says
+
+This is the cleanest of the three extension points.
+`ResourceAssignmentPluggable` is consulted at the top of
+`QueueManager.getResourcesForEvent()`:
+
+```java
+Optional<ResourceAssignmentPluggable> plugin = ResourceAssignmentPluggable.getInterestedPlugin(model, event);
+if (plugin.isPresent()) return plugin.get().getResourcesForEvent(model, event).orElse(null);
+```
+
+A plugin that declares interest replaces Scylla's assignment entirely -- the
+all-required-at-once semantics, the pool, and the free-right-now selection are
+all bypassed. Both problems are fixable in one place, with **no core change**,
+unlike plugin 1.
+
+It would also remove the reason for pooling at all: with assignment under our
+control, per-activity eligible sets can be honoured directly, and the shared
+pool that inflates nothing but hides everything could go.
+
+### The decision this raises
+
+Restoring eligibility is uncontroversial -- it is information the model carries
+and Scylla currently discards.
+
+Matching Prosimos's selection rule is not. Two defensible readings:
+
+- **Match it.** The claim is about running the same model on two engines.
+  Resource selection is part of the model, not something an engine should decide
+  arbitrarily, and leaving it unmatched means the comparison measures the
+  engines' queueing internals rather than the model.
+- **Leave it.** Scylla's policy is Scylla's. Overriding it makes the study
+  "Scylla made to behave like Prosimos" rather than "Scylla".
+
+This is a methodological question, not a technical one, and it belongs with
+Samira before the plugin is written. A middle option exists: implement the
+selection rule behind a flag and report both, which turns the disagreement into
+a measurement rather than a choice.
+
+### Steps
+
+1. Plugin: 4 classes, no core change. Parse per-activity eligible resource sets;
+   implement selection; return a `ResourceObjectTuple`.
+2. Converter: emit eligible sets per activity; drop the shared pool once the
+   plugin handles assignment.
+3. Tests: an activity must only ever be performed by an eligible resource; with
+   the Prosimos rule enabled, the realised duration distribution should match
+   the declared resource means far more closely than the current 182 s against
+   344 s.
+4. Re-measure. Expect the ratio to move from 0.49 towards 0.87, which is what
+   everything else accounts for.
+
+**Estimate: 3–4 days**, most of it in the selection semantics and its tests.
+
+---
+
 ## Order
 
-**Plugin 2 first**, despite plugin 1 being the one Leon called easy.
+**Plugins 1 and 2 are done.** Plugin 2 was written first, and that ordering held
+up: it addressed the larger effect, needed no core change, and its result was
+directly measurable, which made plugin 1's core change easier to justify
+afterwards.
 
-Three reasons:
+Plugin 3 is proposed rather than scheduled. It should not start until the
+selection-policy question above is settled, because the answer changes what
+gets built -- restoring eligibility alone is a smaller job than that plus
+matching Prosimos's selection rule.
 
-- It addresses the larger effect (~130% against ~34%).
-- It needs no core change, so it is the cleaner proof that the plugin route
-  works at all.
-- Its result is directly measurable: rerun `compare_engines.py` and see whether
-  the gap closes. Plugin 1's effect is harder to see while the arrival calendar
-  is still distorting everything.
-
-If plugin 2 lands and the gap closes as predicted, plugin 1 becomes a
-refinement rather than a necessity — and its core change is easier to justify
-with that evidence in hand.
+Worth noting the irony in hindsight: plugin 3 needs no core change and has the
+cleanest extension point of the three, so if it had been on the original list it
+would have been the natural place to start.
 
 ---
 
