@@ -1,5 +1,14 @@
 # Two Scylla plugins — feasibility and plan
 
+> **Status 2026-09-01: both plugins are written and measured.** The feasibility
+> assessment below held up, with one correction: option C for plugin 1 was
+> checked and is genuinely impossible (both resource-assignment paths run before
+> TaskBeginEvent, and its plugin hook fires after the duration is sampled), so
+> the small core change was made. Results and what they mean are in
+> `backend/src/simulation_pipeline/simulation/scylla/README.md` -- in short, the
+> arrival calendar plugin closed the dominant gap as predicted, and the
+> resource-duration plugin widened it, for a reason worth reading.
+
 Samira's decision (2026-09-01): keep the differentiated Simod output and extend
 Scylla to fit the model, rather than pooling the model to fit Scylla. Leon
 confirmed both behaviours are missing and said plugins should be able to add

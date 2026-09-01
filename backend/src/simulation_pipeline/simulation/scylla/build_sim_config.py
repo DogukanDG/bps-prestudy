@@ -118,6 +118,7 @@ def build_sim_config(
     n_draws: int = D.DEFAULT_DRAWS,
     weighted: bool = False,
     arrival_calendar: bool = True,
+    resource_durations: bool = True,
 ) -> ET.Element:
     """Build the definitions/simulationConfiguration tree.
 
@@ -140,7 +141,7 @@ def build_sim_config(
     })
 
     for task in model["task_resource_distribution"]:
-        _append_task(sim, task, rng, buckets, n_draws, weighted)
+        _append_task(sim, task, rng, buckets, n_draws, weighted, resource_durations)
 
     for gateway in model.get("gateway_branching_probabilities", []):
         _append_gateway(sim, gateway, bpmn["gateway_types"])
@@ -154,13 +155,29 @@ def build_sim_config(
     return root
 
 
-def _append_task(parent, task, rng, buckets, n_draws, weighted) -> ET.Element:
+def _append_task(parent, task, rng, buckets, n_draws, weighted,
+                 resource_durations=True) -> ET.Element:
     el = ET.SubElement(parent, _q("task"), id=task["task_id"])
 
+    # Pooled duration, kept as the fallback: a Scylla build without the
+    # resourceDuration plugin ignores the per-resource block below and uses
+    # this, reproducing the earlier behaviour rather than failing.
     duration = ET.SubElement(el, _q("duration"), timeUnit=D.TIME_UNIT)
     weights = resource_weights(task, rng) if weighted else None
     D.append_pooled_duration(duration, task["resources"], weights, rng,
                              buckets, n_draws)
+
+    # One distribution per resource, as Simod discovered them. This is what the
+    # pooling above was standing in for; with the plugin the fastest and slowest
+    # resource on an activity are no longer treated as identical.
+    if resource_durations:
+        block = ET.SubElement(el, _q("resourceDurations"))
+        for res in task["resources"]:
+            item = ET.SubElement(block, _q("resourceDuration"), {
+                "resourceId": res["resource_id"],
+                "timeUnit": D.TIME_UNIT,
+            })
+            D.append_distribution(item, res, rng, buckets, n_draws)
 
     # One unit of the single shared pool. amount="1" means "any one resource",
     # which is the alternative-resource semantics Prosimos has and Scylla's

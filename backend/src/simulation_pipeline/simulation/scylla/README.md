@@ -245,44 +245,76 @@ not a converter defect.
 
 ---
 
-## Open question: Scylla now undershoots Prosimos
+## The two plugins, and what they changed
+
+Samira's decision (2026-09-01) was to keep the differentiated Simod output and
+extend Scylla instead of pooling the model to fit it. Both plugins are written
+and measured.
 
 Measured on BPIC 2012 at 500 cases, mean cycle time:
 
 | | cycle time | vs Prosimos |
 |---|---|---|
-| Prosimos | 6857 | — |
+| Prosimos | ~7000 | — |
 | Scylla, stock | 15357 | 2.24x |
-| Scylla, arrival calendar plugin | 6115 | **0.89x** |
+| + arrival calendar plugin | 6115 | 0.84x |
+| + resource durations plugin | 3397 | **0.47x** |
 
-The plugin confirmed T5's decomposition -- the arrival calendar was the dominant
-term. But the gap did not close to 1.0, it crossed it: Scylla is now roughly 11%
-*faster* than Prosimos rather than 124% slower.
+### The arrival calendar plugin did what T5 predicted
 
-That is a smaller discrepancy but a different one, and it has not been
-attributed yet. Three candidates, all still in play:
+It removed the dominant term. Cases now arrive only during the hours the model's
+calendar covers, instead of spreading over all 168.
 
-- **Resource pooling.** Still collapsing per-resource durations into one
-  distribution per activity, and still putting every resource into one shared
-  pool. The T5 measurement put this at about +34% on its own, in the opposite
-  direction, so it does not obviously explain an undershoot.
-- **Metric definitions.** `processing_time` and `waiting_time` are measured
-  differently by the two engines (see finding 6). `cycle_time` shares a
-  definition, so this should not affect the number above -- worth confirming
-  rather than assuming.
-- **Deferral semantics.** Cases that would arrive outside the calendar are
-  pushed to the next opening, which clusters them. Prosimos compresses arrivals
-  differently. The realised inter-arrival distribution therefore differs even
-  with the plugin, and that could plausibly move cycle time either way.
+Two things came out of building it. First, a real defect in Scylla:
+`DateTimeUtils.getTimeTableIndexWithinOrNext` ranks candidate windows using
+`getNextOrSameZonedDateTime`, which can select a window whose start already
+passed earlier the same day. That yields a negative duration and lets arrivals
+through outside the calendar -- seen as arrivals at 21:00 and 22:00 against a
+calendar closing at 20:00. The plugin computes the delay itself, walking
+forward. **The same helper is used elsewhere in Scylla, so resource calendars
+may be affected too** -- worth reporting to Leon.
 
-Worth resolving before the comparison study, because "the engines agree within
-11%" and "the engines disagree by 11% for reasons we have not identified" are
-different claims. The decomposition method from T5 applies directly: run the
-model through Prosimos with each translation step applied in turn, engine held
-constant.
+Second, deferring rather than dropping clusters arrivals at window openings, so
+the realised inter-arrival distribution is not exactly the configured one. That
+is a deliberate choice: it keeps the case count equal to `processInstances`,
+which is what Prosimos does.
 
-The resource-duration plugin may settle it on its own -- if it does, the
-undershoot was pooling all along.
+### The resource duration plugin moved the gap the wrong way
+
+Restoring per-resource durations was expected to close the remaining gap. It
+widened it, from 0.84x to 0.47x, and the reason is a genuine engine difference
+rather than a bug.
+
+Scylla assigns whichever pool instance is free. A fast resource finishes sooner,
+becomes available sooner, and so takes on disproportionately more work. On
+`W_Completeren aanvraag` the declared resource means run 6.7 s to 1060.7 s with a
+median of 343.8 s; the realised median is 182 s. Fast resources are doing most
+of the work, so the activity runs faster than the resource population implies.
+
+**This is the assumption the converter's load weighting was built on, and which
+was measured false for Prosimos.** There, selection is near-uniform -- fastest
+resource 4.8% of executions, slowest 2.7% -- which is why `weighted=False` is
+the default (finding 2). The same assumption turns out to be true for Scylla.
+The two engines allocate work differently, and no amount of translation fixes
+that.
+
+So the plugin is correct and does what it was asked to do -- durations now
+follow the assigned resource, verified with a bimodal test model. What it
+exposes is that per-resource durations and availability-based assignment
+interact, and Prosimos and Scylla differ in the second.
+
+### What this means for the comparison
+
+The gap is no longer dominated by something missing from Scylla. It is dominated
+by how the two engines choose a resource, which is a modelling difference to
+report rather than a defect to fix.
+
+Open: whether to keep the resource-duration plugin enabled. Enabled, the model
+is faithful to what Simod discovered but the engines diverge more. Disabled,
+pooling hides the difference and the numbers agree more closely for the wrong
+reason. The first is more honest; the second is easier to compare. Worth a
+decision before the comparison study, and worth stating in the write-up either
+way.
 
 ## Environment
 
@@ -328,10 +360,11 @@ the comparison reference — the Prosimos arm does not need re-running. The
 | T4 calendars | passing 7/7 — calendars ruled out, eligibility identified |
 | Tests | 195 passing, none skipped |
 | Prosimos arm | unchanged; default engine, existing callers unaffected |
-| Arrival calendar plugin | done — Scylla now honours it (see the open question above) |
-| Next | resource-duration plugin (PLANNING_SCYLLA_PLUGINS.md) |
+| Arrival calendar plugin | done — 2.24x to 0.84x against Prosimos |
+| Resource duration plugin | done — but widens the gap to 0.47x, see above |
+| Next | decide whether to keep resource durations on; then the SA comparison |
 | Open decision | whether to report waiting_time and processing_time sensitivity |
-| Open question | why Scylla now undershoots Prosimos by ~11% |
+| Open decision | resource-duration plugin on (faithful) or off (comparable) |
 
 `compare_engines.py` runs both engines on a real model and attributes the gap to
 weighting, discretisation and pooling separately.
