@@ -245,6 +245,45 @@ not a converter defect.
 
 ---
 
+## Open question: Scylla now undershoots Prosimos
+
+Measured on BPIC 2012 at 500 cases, mean cycle time:
+
+| | cycle time | vs Prosimos |
+|---|---|---|
+| Prosimos | 6857 | — |
+| Scylla, stock | 15357 | 2.24x |
+| Scylla, arrival calendar plugin | 6115 | **0.89x** |
+
+The plugin confirmed T5's decomposition -- the arrival calendar was the dominant
+term. But the gap did not close to 1.0, it crossed it: Scylla is now roughly 11%
+*faster* than Prosimos rather than 124% slower.
+
+That is a smaller discrepancy but a different one, and it has not been
+attributed yet. Three candidates, all still in play:
+
+- **Resource pooling.** Still collapsing per-resource durations into one
+  distribution per activity, and still putting every resource into one shared
+  pool. The T5 measurement put this at about +34% on its own, in the opposite
+  direction, so it does not obviously explain an undershoot.
+- **Metric definitions.** `processing_time` and `waiting_time` are measured
+  differently by the two engines (see finding 6). `cycle_time` shares a
+  definition, so this should not affect the number above -- worth confirming
+  rather than assuming.
+- **Deferral semantics.** Cases that would arrive outside the calendar are
+  pushed to the next opening, which clusters them. Prosimos compresses arrivals
+  differently. The realised inter-arrival distribution therefore differs even
+  with the plugin, and that could plausibly move cycle time either way.
+
+Worth resolving before the comparison study, because "the engines agree within
+11%" and "the engines disagree by 11% for reasons we have not identified" are
+different claims. The decomposition method from T5 applies directly: run the
+model through Prosimos with each translation step applied in turn, engine held
+constant.
+
+The resource-duration plugin may settle it on its own -- if it does, the
+undershoot was pooling all along.
+
 ## Environment
 
 Both engines run on this machine. Prosimos needs Python < 3.12, and current
@@ -289,8 +328,10 @@ the comparison reference — the Prosimos arm does not need re-running. The
 | T4 calendars | passing 7/7 — calendars ruled out, eligibility identified |
 | Tests | 195 passing, none skipped |
 | Prosimos arm | unchanged; default engine, existing callers unaffected |
-| Next | T3 (distribution fidelity), T5 (quantify eligibility on the real model) |
+| Arrival calendar plugin | done — Scylla now honours it (see the open question above) |
+| Next | resource-duration plugin (PLANNING_SCYLLA_PLUGINS.md) |
 | Open decision | whether to report waiting_time and processing_time sensitivity |
+| Open question | why Scylla now undershoots Prosimos by ~11% |
 
 `compare_engines.py` runs both engines on a real model and attributes the gap to
 weighting, discretisation and pooling separately.
