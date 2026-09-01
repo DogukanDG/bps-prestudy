@@ -22,3 +22,6 @@ docker_prebuilt_images/
 # Bundled JRE tarball from the upstream Docker build (45 MB). Not needed for
 # headless runs; fetch it from the upstream repo if you build the image.
 docker_build/*.tar.gz
+
+# Simod pool-mode experiment outputs (config and notes live in backend/simod_pool/)
+backend/simod_pool/runs/
