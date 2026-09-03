@@ -303,51 +303,56 @@ follow the assigned resource, verified with a bimodal test model. What it
 exposes is that per-resource durations and availability-based assignment
 interact, and Prosimos and Scylla differ in the second.
 
-### Where the remaining gap actually comes from (measured)
+### Where the remaining gap comes from (measured, and one earlier claim retracted)
 
-Two candidates were on the table for the 0.47x undershoot: the lost eligibility
-(every resource can perform every activity under the shared pool) and the
-engines' differing resource-selection policies. Both measured on BPIC 2012 at
-500 cases.
+**Retraction.** An earlier version of this section said the two engines pick
+resources differently -- Prosimos taking whoever becomes free earliest, Scylla
+whoever is free right now -- and attributed the gap to that. That is wrong.
+Tested directly with two resources on one activity, one at 10 s and one at
+100 s, both always available:
 
-**Eligibility is not it, and works the other way.** Running Prosimos against
-itself, once with the real eligibility and once with every resource eligible for
-everything:
+| | fast resource | slow resource |
+|---|---|---|
+| Prosimos | 91% of executions | 9% |
+| Scylla | 91% | 9% |
 
-| Prosimos | cycle time |
-|---|---|
-| real eligibility | 6684 |
-| everyone eligible | 8112 |
+Identical. Both engines let a fast resource cycle back and take most of the
+work; that is a property of any availability-based queue, not a difference
+between them. The earlier claim came from reading the two implementations and
+inferring a difference rather than measuring one.
 
-Losing eligibility *raises* cycle time by 21%. It cannot explain an undershoot.
-(Which is intuitive in hindsight: opening every activity to every resource means
-more contention for the same 47 resources, not less.)
+**What the gap actually is.** Breaking cycle time into its parts, on BPIC 2012
+at 500 cases:
 
-**Selection policy is it.** Give every resource on an activity the same duration
-and the policies cannot differ in effect; restore the real per-resource
-durations and they can:
+| | Prosimos | Scylla |
+|---|---|---|
+| *equal speeds* — cycle | 9314 | 8187 |
+| *equal speeds* — waiting | 2887 | 1505 |
+| *real speeds* — cycle | 8267 | 3397 |
+| *real speeds* — waiting | 3914 | **422** |
 
-| | Scylla / Prosimos |
-|---|---|
-| all resources equally fast | **0.87** |
-| real per-resource durations | **0.49** |
+Processing time sits at a roughly constant ratio (0.61-0.73) in both cases,
+which is the known metric-definition difference. What moves is **waiting**:
+Scylla's queueing nearly disappears once resources differ in speed.
 
-So roughly 0.87 is what everything else adds up to, and the drop to 0.49 is
-entirely the interaction between per-resource durations and how each engine
-picks a resource. Prosimos takes the one that becomes free earliest, keeping
-busy resources in the queue; Scylla takes one that is free right now, so fast
-resources return to the pool repeatedly and take disproportionately more work.
+The cause is the shared pool. Prosimos restricts each activity to the resources
+Simod recorded for it -- 27, 40, 42, 38, 42 and 2 of the 47. Scylla's single
+pool lets every activity draw on all 47, so there is more effective capacity per
+activity and less contention. With equal speeds that costs about 10%; with real
+speeds the fast resources are available to every activity at once and the queue
+collapses.
 
-**A third plugin could close this.** `ResourceAssignmentPluggable` exists and is
-consulted at the top of `QueueManager.getResourcesForEvent()` -- a plugin that
-declares interest replaces Scylla's assignment logic entirely, before the
-all-required-at-once semantics or the pool are involved. That is a cleaner
-extension point than either of the two plugins already written, and it would let
-us restore eligibility *and* match Prosimos's selection rule in one place.
+So the remaining gap is eligibility after all, and it is larger than the 21%
+measured earlier -- that measurement removed eligibility from Prosimos while
+leaving durations pooled, which understated it. Eligibility and per-resource
+durations interact: neither alone accounts for the gap.
 
-Whether to do it is a scope decision. The gap is now understood and
-attributable, which may be enough for the write-up; closing it would make the
-two arms more directly comparable at the cost of another plugin.
+**A third plugin would close it.** `ResourceAssignmentPluggable` is consulted at
+the top of `QueueManager.getResourcesForEvent()` and lets a plugin replace
+assignment outright, before the all-required-at-once semantics or the pool are
+involved. Per-activity eligible sets can then be honoured directly with correct
+capacity -- the two things Scylla's own XML cannot express together. No core
+change, unlike the duration plugin.
 
 ### What this means for the comparison
 

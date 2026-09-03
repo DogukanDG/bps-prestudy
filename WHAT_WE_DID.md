@@ -73,22 +73,22 @@ interesting rather than wrong.
 
 ## Step 5 — Understood why the second plugin widened the gap
 
-The two engines choose resources differently.
+The reason is that Scylla does not know which resources may perform which
+activity. Simod records that — one activity can be done by 27 of the 47
+resources, another by only 2 — but Scylla can express either correct capacity or
+that eligibility, not both, so we chose capacity and put everyone in one pool.
+Every activity can therefore draw on all 47 resources.
 
-Prosimos picks the resource that will become free *earliest*, so a busy resource
-stays in the queue and eventually gets its turn. Scylla picks one that is free
-*right now*, so a fast resource finishes, returns to the pool, and gets picked
-again — over and over.
+While every resource had the same speed this cost about 10%. Once the durations
+differ, the fast resources are available to every activity at once and queueing
+almost disappears: average waiting time is 3914 seconds in Prosimos against 422
+in Scylla. That is where the cycle time goes.
 
-While every resource had the same duration this made no difference. Once
-durations differ per resource, fast resources in Scylla end up doing most of the
-work, and the process runs faster than the model implies.
-
-We measured it: give every resource the same speed and the two engines agree to
-within 13%. Restore the real per-resource speeds and the gap opens to 51%. So
-the gap is the selection rule, not the durations themselves.
-
----
+One correction worth recording. We first thought the two engines chose resources
+by different rules. Tested directly — two resources on one activity, one at 10
+seconds and one at 100 — both engines gave the fast one 91% of the work. They
+behave identically. The earlier explanation came from reading the two
+implementations and inferring a difference instead of measuring one.
 
 ## Where we are now
 
@@ -98,18 +98,15 @@ attributable rather than mysterious.
 
 ## What is still open
 
-**One more thing Scylla cannot express.** It does not know which resources are
-allowed to perform which activity — currently every resource can do everything.
-We measured the effect by removing that information from Prosimos instead: it
-raises cycle time by about 21%.
+**The eligibility gap.** Scylla still does not know which resources may perform
+which activity, and that is now the main remaining difference. A third plugin
+would fix it, and it would be the easiest of the three to write — it needs no
+change to Scylla's core, unlike the duration plugin.
 
-**A question for Samira.** Both of these could be fixed with a third plugin, and
-it would be the easiest of the three to write. But it raises a question we
-cannot answer on our own: how far should we go in making Scylla behave like
-Prosimos? Adding the eligibility information seems clearly right — the model
-already contains it. Changing *how Scylla picks a resource* is different; past
-some point we would be comparing "Scylla made to act like Prosimos" rather than
-Scylla.
+There is no methodological question attached to it, as we first thought. Adding
+eligibility restores information the model already carries; it does not make
+Scylla imitate Prosimos, because the two engines already select resources the
+same way.
 
 **The comparison itself.** The actual sensitivity analysis comparison — do both
 engines rank the parameters the same way — has not been completed yet. The code

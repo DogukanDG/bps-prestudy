@@ -193,35 +193,32 @@ first two landed, and it is the cheapest of the three to build.
 ### Why
 
 With both plugins in place, Scylla's mean cycle time on BPIC 2012 at 500 cases
-is 3397 s against Prosimos's 6999 s -- a ratio of 0.49. Two measurements
-attribute that:
+is 3397 s against Prosimos's ~7000 -- a ratio of 0.49. Breaking that down:
 
-**Eligibility, measured on Prosimos alone** (real eligibility vs. every resource
-eligible for everything, so the engine is held constant):
+| | Prosimos | Scylla |
+|---|---|---|
+| *equal speeds* — cycle | 9314 | 8187 |
+| *equal speeds* — waiting | 2887 | 1505 |
+| *real speeds* — cycle | 8267 | 3397 |
+| *real speeds* — waiting | 3914 | **422** |
 
-| Prosimos | cycle time |
-|---|---|
-| real eligibility | 6684 |
-| everyone eligible | 8112 |
+Processing time holds a roughly constant ratio throughout, which is the known
+metric-definition difference. What moves is waiting: Scylla's queueing nearly
+disappears once resources differ in speed.
 
-Losing eligibility *raises* cycle time by 21%. Restoring it in Scylla would
-therefore move 3397 up towards Prosimos, roughly to 4100 -- the right direction,
-but not enough on its own.
+The cause is the shared pool. Prosimos restricts each activity to the resources
+Simod recorded for it -- 27, 40, 42, 38, 42 and 2 of the 47 -- while Scylla's
+single pool lets every activity use all 47. More effective capacity per
+activity, so less contention. With equal speeds that costs about 10%; with real
+speeds the fast resources are reachable from every activity at once and the
+queue collapses.
 
-**Selection policy**, isolated by giving every resource on an activity the same
-duration, so the two engines' policies cannot differ in effect:
-
-| | Scylla / Prosimos |
-|---|---|
-| all resources equally fast | 0.87 |
-| real per-resource durations | 0.49 |
-
-The drop from 0.87 to 0.49 is entirely how each engine chooses among available
-resources. Prosimos takes the one that becomes free earliest, keeping busy
-resources in the queue. Scylla takes one that is free *now*, so a fast resource
-returns to the pool repeatedly and takes disproportionately more work.
-
-So eligibility is the smaller term and selection policy is the larger one.
+**Correction to an earlier version of this section.** It claimed the engines
+select resources by different rules and attributed the gap to that. Measured
+directly -- two resources on one activity, 10 s and 100 s, both always available
+-- both engines give the fast one 91% of the executions. They behave
+identically. That earlier claim came from reading the two implementations and
+inferring a difference rather than testing for one.
 
 ### What the source says
 
@@ -243,24 +240,20 @@ It would also remove the reason for pooling at all: with assignment under our
 control, per-activity eligible sets can be honoured directly, and the shared
 pool that inflates nothing but hides everything could go.
 
-### The decision this raises
+### Scope
 
-Restoring eligibility is uncontroversial -- it is information the model carries
-and Scylla currently discards.
+Restoring eligibility is uncontroversial: it is information the model carries
+and Scylla currently discards. There is no methodological question attached, as
+an earlier draft of this plan suggested -- the engines already select resources
+the same way, so honouring eligibility does not make Scylla imitate Prosimos.
 
-Matching Prosimos's selection rule is not. Two defensible readings:
-
-- **Match it.** The claim is about running the same model on two engines.
-  Resource selection is part of the model, not something an engine should decide
-  arbitrarily, and leaving it unmatched means the comparison measures the
-  engines' queueing internals rather than the model.
-- **Leave it.** Scylla's policy is Scylla's. Overriding it makes the study
-  "Scylla made to behave like Prosimos" rather than "Scylla".
-
-This is a methodological question, not a technical one, and it belongs with
-Samira before the plugin is written. A middle option exists: implement the
-selection rule behind a flag and report both, which turns the disagreement into
-a measurement rather than a choice.
+The open part is the pool structure. In BPIC 2012 the 47 resources fall into 13
+groups by capability (22 and 12 people in the two largest, the rest mostly
+single-person), but the groups overlap rather than partition: one activity can
+be performed by up to nine of them. Scylla's own XML cannot express that,
+because a list of resources on an activity means "all of these at once". The
+plugin sidesteps it by taking over assignment, so it can hold per-activity
+eligible sets directly and never use Scylla's resource lists at all.
 
 ### Steps
 
